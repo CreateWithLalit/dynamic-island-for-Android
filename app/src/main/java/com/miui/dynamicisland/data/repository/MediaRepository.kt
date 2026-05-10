@@ -82,10 +82,15 @@ class MediaRepository(private val context: Context) {
         val position = pb?.position ?: 0L
         val isPlaying = pb?.state == PlaybackState.STATE_PLAYING
 
+        val artBitmap = meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+
         _realTimeMediaInfo.value = MediaInfo(
             title        = title,
             artist       = artist,
             album        = album,
+            albumArt     = artBitmap,
             albumArtUri  = artUri,
             duration     = duration,
             position     = position,

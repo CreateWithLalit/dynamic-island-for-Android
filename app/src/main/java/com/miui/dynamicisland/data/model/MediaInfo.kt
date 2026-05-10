@@ -3,6 +3,7 @@
 
 package com.miui.dynamicisland.data.model
 
+import android.graphics.Bitmap
 import android.media.session.PlaybackState
 import androidx.annotation.Keep
 import java.util.Locale
@@ -13,6 +14,7 @@ data class MediaInfo(
     val title: String,
     val artist: String,
     val album: String? = null,
+    val albumArt: Bitmap? = null,
     val albumArtUri: String? = null,
     val duration: Long = 0L,
     val position: Long = 0L,

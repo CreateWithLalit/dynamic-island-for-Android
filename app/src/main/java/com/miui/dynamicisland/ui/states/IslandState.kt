@@ -1,6 +1,7 @@
 // File: app/src/main/java/com/miui/dynamicisland/ui/states/IslandState.kt
 package com.miui.dynamicisland.ui.states
 
+import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.media.AudioManager
 
@@ -28,6 +29,7 @@ sealed class IslandState(
         val artist: String,
         val isPlaying: Boolean = true,
         val packageName: String = "",
+        val albumArt: Bitmap? = null,
         val albumArtUri: String? = null,
         val duration: Long = 0L,
         val position: Long = 0L,

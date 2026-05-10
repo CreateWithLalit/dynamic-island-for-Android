@@ -225,6 +225,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             artist      = media.artist,
                             packageName = media.packageName,
                             isPlaying   = media.isPlaying,
+                            albumArt    = media.albumArt,
                             albumArtUri = media.albumArtUri,
                             duration    = media.duration,
                             position    = media.position,

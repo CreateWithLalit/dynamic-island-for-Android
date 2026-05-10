@@ -10,6 +10,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,7 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,11 +68,19 @@ private fun MediaCompactWidget(
     when (slot) {
         MediaSlot.LEFT -> {
             Box(modifier = modifier.padding(start = 8.dp), contentAlignment = Alignment.CenterStart) {
-                if (state.albumArtUri != null) {
+                if (state.albumArt != null) {
+                    Image(
+                        bitmap = state.albumArt.asImageBitmap(),
+                        contentDescription = "Art",
+                        modifier = Modifier.size(26.dp).clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (state.albumArtUri != null) {
                     AsyncImage(
                         model = state.albumArtUri,
                         contentDescription = "Art",
-                        modifier = Modifier.size(26.dp).clip(CircleShape)
+                        modifier = Modifier.size(26.dp).clip(CircleShape),
+                        contentScale = ContentScale.Crop
                     )
                 } else {
                     Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp), MediaTextSecondary)
@@ -114,8 +125,20 @@ private fun MediaExpandedWidget(
     Column(modifier = modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.size(64.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF1C1C1E)), contentAlignment = Alignment.Center) {
-                if (state.albumArtUri != null) {
-                    AsyncImage(model = state.albumArtUri, contentDescription = "Art", modifier = Modifier.fillMaxSize())
+                if (state.albumArt != null) {
+                    Image(
+                        bitmap = state.albumArt.asImageBitmap(),
+                        contentDescription = "Art",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (state.albumArtUri != null) {
+                    AsyncImage(
+                        model = state.albumArtUri,
+                        contentDescription = "Art",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 } else {
                     Icon(Icons.Default.MusicNote, null, Modifier.size(32.dp), MediaTextSecondary)
                 }
