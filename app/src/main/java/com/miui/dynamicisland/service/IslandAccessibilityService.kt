@@ -2,6 +2,7 @@ package com.miui.dynamicisland.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.graphics.drawable.Drawable
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.view.accessibility.AccessibilityEvent
@@ -16,10 +17,32 @@ class IslandAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "IslandAccessibilityService"
+        var instance: IslandAccessibilityService? = null
+            private set
+
+        fun acceptCall(): Boolean {
+            val inst = instance ?: return false
+            // GLOBAL_ACTION_ANSWER_CALL = 10
+            return inst.performGlobalAction(10)
+        }
+
+        fun declineCall(): Boolean {
+            val inst = instance ?: return false
+            // GLOBAL_ACTION_DISMISS_NOTIFICATION_ALL = 11
+            val done = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                inst.performGlobalAction(11)
+            } else false
+            
+            if (!done) {
+                inst.performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+            return true
+        }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         IslandLogger.d(TAG, "Accessibility service connected", null)
 
         // Bridge media controller via accessibility (backup method)
@@ -61,12 +84,27 @@ class IslandAccessibilityService : AccessibilityService() {
         val text = event.text?.joinToString(" ") ?: ""
         if (text.isBlank()) return
 
+        // Real app name
+        val realAppName: String = try {
+            val appInfo = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName  // fallback to package name
+        }
+
+        // Real app icon Drawable
+        val appIconDrawable: Drawable? = try {
+            packageManager.getApplicationIcon(packageName)
+        } catch (e: Exception) {
+            null  // fallback -> "C" letter will show
+        }
+
         val notificationData = NotificationData(
-            appName = packageName,
+            appName = realAppName,
             title = text,
             content = "",
             packageName = packageName,
-            icon = null,
+            appIcon = appIconDrawable,
             timestamp = System.currentTimeMillis(),
             isNotEmpty = true
         )
@@ -81,6 +119,7 @@ class IslandAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         IslandLogger.d(TAG, "Accessibility service unbound", null)
+        instance = null
         return super.onUnbind(intent)
     }
 }

@@ -47,7 +47,7 @@ private val COMPACT_WIDTH     = 126.dp
 private val COMPACT_HEIGHT    = 37.dp
 private val COMPACT_RADIUS    = 18.5.dp
 
-private const val EXPANDED_WIDTH_DP = 320
+private const val EXPANDED_WIDTH_DP = 260
 private val MEDIA_EXP_WIDTH   = EXPANDED_WIDTH_DP.dp
 private val MEDIA_EXP_HEIGHT  = 160.dp
 private val MEDIA_EXP_RADIUS  = 42.dp
@@ -211,7 +211,7 @@ private fun IslandShell(
 
         // ── Notification ──────────────────────────────────────────────────────
         is IslandState.Notification -> {
-            val targetW = if (state.isExpanded) DEFAULT_EXP_WIDTH else 260.dp
+            val targetW = if (state.isExpanded) DEFAULT_EXP_WIDTH else 215.dp
             val targetH = if (state.isExpanded) calibH else calibH // Maintain base height
             val targetR = if (state.isExpanded) calibR else calibR
 
@@ -274,7 +274,7 @@ private fun IslandShell(
         // ── Call ──────────────────────────────────────────────────────────────
         is IslandState.Call -> {
             AnimatedCutoutSafeIslandShell(
-                targetWidth        = if (state.isExpanded) DEFAULT_EXP_WIDTH else 260.dp,
+                targetWidth        = if (state.isExpanded) DEFAULT_EXP_WIDTH else calibW,
                 targetHeight       = if (state.isExpanded) 120.dp else calibH,
                 targetCornerRadius = if (state.isExpanded) DEFAULT_EXP_RADIUS else calibR,
                 leftContent  = { CallWidget(state = state, slot = CallSlot.LEFT) },

@@ -2,15 +2,18 @@ package com.miui.dynamicisland.data.repository
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
 import android.telecom.TelecomManager
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
+import android.view.KeyEvent
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.miui.dynamicisland.data.model.CallState
+import com.miui.dynamicisland.service.IslandAccessibilityService
 import com.miui.dynamicisland.util.IslandLogger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
@@ -101,23 +104,49 @@ class CallRepository(private val context: Context) {
     // Interactive Actions
     fun acceptCall() {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                telecomManager?.acceptRingingCall()
+            // Method 1: Accessibility (best for MIUI)
+            val done = IslandAccessibilityService.acceptCall()
+            if (done) {
+                IslandLogger.d(TAG, "Call accepted via accessibility", null)
+                return
             }
-            IslandLogger.d(TAG, "Accept call requested", null)
-        } catch (e: SecurityException) {
-            IslandLogger.e(TAG, "No permission to accept call", e)
+            
+            // Method 2: AudioManager via headset hook fallback
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audioManager.dispatchMediaKeyEvent(
+                KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HEADSETHOOK)
+            )
+            audioManager.dispatchMediaKeyEvent(
+                KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_HEADSETHOOK)
+            )
+            IslandLogger.d(TAG, "Accept via headsethook fallback", null)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Accept call failed", e)
         }
     }
 
     fun declineCall() {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                telecomManager?.endCall()
+            // Method 1: Accessibility
+            val done = IslandAccessibilityService.declineCall()
+            if (done) {
+                IslandLogger.d(TAG, "Call declined via accessibility", null)
+                return
             }
-            IslandLogger.d(TAG, "Decline call requested", null)
+            
+            // Method 2: TelecomManager fallback
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val result = telecomManager?.endCall()
+                IslandLogger.d(TAG, "Decline via telecom fallback result: $result", null)
+            }
+            
+            // Intent Fallback
+            val intent = Intent(Intent.ACTION_ANSWER)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         } catch (e: SecurityException) {
-            IslandLogger.e(TAG, "No permission to end call", e)
+            IslandLogger.e(TAG, "No permission to decline", e)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Decline call failed", e)
         }
     }
 

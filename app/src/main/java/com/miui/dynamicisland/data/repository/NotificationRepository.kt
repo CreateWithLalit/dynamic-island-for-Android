@@ -1,6 +1,6 @@
 package com.miui.dynamicisland.data.repository
 
-import android.graphics.drawable.Icon
+import android.graphics.drawable.Drawable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,7 +10,7 @@ data class NotificationData(
     val title: String,
     val content: String,
     val packageName: String,
-    val icon: Icon?,
+    val appIcon: Drawable?,
     val timestamp: Long,
     val isNotEmpty: Boolean = false
 ) {
@@ -20,7 +20,7 @@ data class NotificationData(
             title = "",
             content = "",
             packageName = "",
-            icon = null,
+            appIcon = null,
             timestamp = 0L,
             isNotEmpty = false
         )

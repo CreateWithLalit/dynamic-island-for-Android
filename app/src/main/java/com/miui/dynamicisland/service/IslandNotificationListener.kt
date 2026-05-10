@@ -2,6 +2,7 @@ package com.miui.dynamicisland.service
 
 import android.app.Notification
 import android.content.ComponentName
+import android.graphics.drawable.Drawable
 import android.media.session.MediaSessionManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -19,16 +20,7 @@ class IslandNotificationListener : NotificationListenerService() {
     private val ignoredPackages = setOf(
         "android",
         "com.android.systemui",
-        "com.miui.dynamicisland",
-        "com.miui.home",
-        "com.android.settings"
-    )
-
-    private val priorityPackages = setOf(
-        "com.whatsapp",
-        "com.telegram.messenger",
-        "com.google.android.apps.messaging",
-        "com.facebook.orca"
+        "com.miui.dynamicisland"
     )
 
     override fun onListenerConnected() {
@@ -56,7 +48,7 @@ class IslandNotificationListener : NotificationListenerService() {
         val packageName = sbn.packageName
 
         if (packageName in ignoredPackages) return
-        if (sbn.isOngoing && packageName !in priorityPackages) return
+        if (sbn.isOngoing) return
         if (sbn.notification.extras.containsKey("android.mediaSession")) return
 
         val title = sbn.notification.extras
@@ -71,12 +63,29 @@ class IslandNotificationListener : NotificationListenerService() {
 
         if (title.isBlank() && content.isBlank()) return
 
+        // Real app name
+        val realAppName: String = try {
+            val appInfo = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            IslandLogger.d(TAG, "Label fetch failed for $packageName", e)
+            packageName  // fallback to package name
+        }
+
+        // Real app icon Drawable
+        val appIconDrawable: Drawable? = try {
+            packageManager.getApplicationIcon(packageName)
+        } catch (e: Exception) {
+            IslandLogger.d(TAG, "Icon fetch failed for $packageName", e)
+            null  // fallback -> "C" letter will show
+        }
+
         val notificationData = NotificationData(
-            appName = packageName,
+            appName = realAppName,
             title = title,
             content = content,
             packageName = packageName,
-            icon = sbn.notification.smallIcon,
+            appIcon = appIconDrawable,
             timestamp = sbn.postTime,
             isNotEmpty = true
         )

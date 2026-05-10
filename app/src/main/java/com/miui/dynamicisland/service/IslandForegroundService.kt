@@ -276,17 +276,13 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         lifecycleScope.launch {
             NotificationRepository.notifications.collectLatest { notification ->
                 if (notification.isNotEmpty) {
-                    val drawable: Drawable? = try {
-                        notification.icon?.loadDrawable(this@IslandForegroundService)
-                    } catch (e: Exception) { null }
-
                     stateManager.pushState(
                         IslandState.Notification(
                             appName     = notification.appName,
                             title       = notification.title,
                             content     = notification.content,
                             packageName = notification.packageName,
-                            appIcon     = drawable,
+                            appIcon     = notification.appIcon,
                             postTime    = notification.timestamp
                         )
                     )
