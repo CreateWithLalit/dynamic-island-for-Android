@@ -1,0 +1,455 @@
+// File: app/src/main/java/com/miui/dynamicisland/service/IslandForegroundService.kt
+
+package com.miui.dynamicisland.service
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
+import android.os.Build
+import android.view.Gravity
+import android.view.WindowManager
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.miui.dynamicisland.DynamicIslandApplication
+import com.miui.dynamicisland.data.model.BatteryInfo
+import com.miui.dynamicisland.data.repository.BatteryRepository
+import com.miui.dynamicisland.data.repository.MediaRepository
+import com.miui.dynamicisland.data.repository.MediaRepositoryBridge
+import com.miui.dynamicisland.data.repository.NotificationRepository
+import com.miui.dynamicisland.data.repository.WeatherRepository
+import com.miui.dynamicisland.manager.CalibrationManager
+import com.miui.dynamicisland.manager.IslandCalibration
+import com.miui.dynamicisland.manager.IslandStateManager
+import com.miui.dynamicisland.receiver.AudioModeReceiver
+import com.miui.dynamicisland.receiver.BatteryReceiver
+import com.miui.dynamicisland.ui.island.CallAction
+import com.miui.dynamicisland.ui.island.DynamicIsland
+import com.miui.dynamicisland.ui.island.MediaAction
+import com.miui.dynamicisland.ui.states.IslandState
+import com.miui.dynamicisland.util.IslandLogger
+import com.miui.dynamicisland.util.WindowUtils
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+
+class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedStateRegistryOwner {
+
+    companion object {
+        private const val TAG = "IslandForegroundService"
+        const val ACTION_START = "com.miui.dynamicisland.START"
+        const val ACTION_STOP  = "com.miui.dynamicisland.STOP"
+    }
+
+    private lateinit var windowManager: WindowManager
+    private var islandView: ComposeView? = null
+    private var islandParams: WindowManager.LayoutParams? = null
+
+    private val stateManager = IslandStateManager.getInstance()
+    private lateinit var calibrationManager: CalibrationManager
+    private lateinit var batteryRepository: BatteryRepository
+    lateinit var mediaRepository: MediaRepository
+        private set
+    private lateinit var weatherRepository: WeatherRepository
+    private lateinit var batteryReceiver: BatteryReceiver
+    private var audioUpdateReceiver: BroadcastReceiver? = null
+
+    private var mediaSessionManager: MediaSessionManager? = null
+    private val mediaSessionListener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
+        val first = controllers?.firstOrNull()
+        mediaRepository.updateFromController(first)
+        IslandLogger.d(TAG, "Active media sessions changed: ${controllers?.size ?: 0}", null)
+    }
+
+    private val serviceViewModelStore = ViewModelStore()
+    override val viewModelStore: ViewModelStore get() = serviceViewModelStore
+
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateRegistryController.savedStateRegistry
+
+    override fun onCreate() {
+        savedStateRegistryController.performAttach()
+        savedStateRegistryController.performRestore(null)
+        super.onCreate()
+
+        windowManager     = getSystemService(WINDOW_SERVICE) as WindowManager
+        calibrationManager = CalibrationManager(this)
+        batteryRepository  = BatteryRepository(this)
+        mediaRepository    = MediaRepository(this)
+        MediaRepositoryBridge.register(mediaRepository)
+        weatherRepository  = WeatherRepository(this)
+        batteryReceiver    = BatteryReceiver()
+
+        startForeground(1001, createNotification())
+        initializeOverlay()
+        registerReceivers()
+        attachMediaSessionListener()
+        observeWeather()
+        observeMedia()
+        observeBattery()
+        observeNotifications()
+        observeCalls()
+    }
+
+    private fun initializeOverlay() {
+        if (islandView != null) return
+
+        val view = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@IslandForegroundService)
+            setViewTreeViewModelStoreOwner(this@IslandForegroundService)
+            setViewTreeSavedStateRegistryOwner(this@IslandForegroundService)
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+
+            setContent {
+                val currentState by stateManager.currentState.collectAsState()
+                val calibration  by calibrationManager.calibration.collectAsState(
+                    initial = IslandCalibration.default()
+                )
+                DynamicIsland(
+                    state         = currentState,
+                    calibration   = calibration,
+                    onMediaAction = { handleMediaAction(it) },
+                    onCallAction  = { handleCallAction(it) }
+                )
+            }
+        }
+
+        val statusBarHeight = WindowUtils.getStatusBarHeight(this)
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            x = 0
+            y = statusBarHeight
+        }
+
+        try {
+            windowManager.addView(view, params)
+            islandView   = view
+            islandParams = params
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Overlay init error: ${e.message ?: "unknown"}", e)
+            return
+        }
+
+        lifecycleScope.launch {
+            calibrationManager.calibration.collectLatest { cal ->
+                val density = resources.displayMetrics.density
+                val baseSafeY = WindowUtils.getStatusBarHeight(this@IslandForegroundService)
+                islandParams?.apply {
+                    x = (cal.offsetX * density).toInt()
+                    y = baseSafeY + (cal.offsetY * density).toInt()
+                }
+                islandView?.let {
+                    try { windowManager.updateViewLayout(it, islandParams) }
+                    catch (e: Exception) {
+                        IslandLogger.e(TAG, "Layout update error: ${e.message ?: "unknown"}", e)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observeWeather() {
+        lifecycleScope.launch {
+            weatherRepository.cachedWeather.collectLatest { weatherInfo ->
+                if (weatherInfo != null) {
+                    stateManager.pushState(
+                        IslandState.Weather(
+                            temperature = weatherInfo.temperature,
+                            condition   = weatherInfo.condition,
+                            iconCode    = weatherInfo.iconCode,
+                            cityName    = weatherInfo.cityName,
+                            isExpanded  = false
+                        )
+                    )
+                    IslandLogger.d(TAG, "Weather state pushed: ${weatherInfo.temperature}° ${weatherInfo.condition}", null)
+                } else {
+                    stateManager.removeState(IslandState.Weather::class.java)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            while (true) {
+                try {
+                    weatherRepository.refreshWeather()
+                } catch (e: Exception) {
+                    IslandLogger.e(TAG, "Weather refresh error: ${e.message ?: "unknown"}", e)
+                }
+                delay(15 * 60 * 1000L)
+            }
+        }
+    }
+
+    private fun observeMedia() {
+        lifecycleScope.launch {
+            mediaRepository.realTimeMediaInfo.collectLatest { media ->
+                if (media != null && media.isActive) {
+                    val current = stateManager.currentState.value
+                    val wasExpanded = (current as? IslandState.Media)?.isExpanded ?: false
+                    stateManager.pushState(
+                        IslandState.Media(
+                            title       = media.title,
+                            artist      = media.artist,
+                            packageName = media.packageName,
+                            isPlaying   = media.isPlaying,
+                            albumArtUri = media.albumArtUri,
+                            duration    = media.duration,
+                            position    = media.position,
+                            isExpanded  = wasExpanded
+                        )
+                    )
+                } else {
+                    stateManager.removeState(IslandState.Media::class.java)
+                }
+            }
+        }
+    }
+
+    private fun observeBattery() {
+        lifecycleScope.launch {
+            var wasCharging = false
+            batteryRepository.batteryInfo.collectLatest { battery ->
+                if (battery.isCharging) {
+                    val current = stateManager.currentState.value
+                    val isAlreadyExpanded = (current as? IslandState.Charging)?.isExpanded == true
+
+                    stateManager.pushState(
+                        IslandState.Charging(
+                            batteryLevel = battery.level,
+                            isCharging   = true,
+                            chargeMethod = battery.chargeMethod.toIslandChargeMethod(),
+                            isExpanded   = isAlreadyExpanded
+                        )
+                    )
+                    
+                    if (!wasCharging) {
+                        // Automatically expand for 5 seconds when first plugged in
+                        stateManager.expandCurrentState(5000L)
+                    }
+                    wasCharging = true
+                } else {
+                    if (wasCharging) {
+                        delay(2000L)
+                        stateManager.removeState(IslandState.Charging::class.java)
+                    }
+                    wasCharging = false
+                }
+            }
+        }
+    }
+
+    private fun observeNotifications() {
+        lifecycleScope.launch {
+            NotificationRepository.notifications.collectLatest { notification ->
+                if (notification.isNotEmpty) {
+                    val drawable: Drawable? = try {
+                        notification.icon?.loadDrawable(this@IslandForegroundService)
+                    } catch (e: Exception) { null }
+
+                    stateManager.pushState(
+                        IslandState.Notification(
+                            appName     = notification.appName,
+                            title       = notification.title,
+                            content     = notification.content,
+                            packageName = notification.packageName,
+                            appIcon     = drawable,
+                            postTime    = notification.timestamp
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun observeCalls() {
+        val callRepo = (application as? DynamicIslandApplication)?.callRepository ?: return
+        lifecycleScope.launch {
+            combine(callRepo.callState, callRepo.ongoingDuration) { state, duration ->
+                state to duration
+            }.collectLatest { (state, duration) ->
+                when (state) {
+                    is com.miui.dynamicisland.data.model.CallState.Ringing -> {
+                        stateManager.pushState(
+                            IslandState.Call(
+                                callerName = state.phoneNumber ?: "Unknown",
+                                isIncoming = true,
+                                isOngoing = false,
+                                isExpanded = (stateManager.currentState.value as? IslandState.Call)?.isExpanded ?: false
+                            )
+                        )
+                    }
+                    com.miui.dynamicisland.data.model.CallState.OffHook -> {
+                        stateManager.pushState(
+                            IslandState.Call(
+                                callerName = "Ongoing Call",
+                                isIncoming = false,
+                                isOngoing = true,
+                                duration = duration,
+                                isExpanded = (stateManager.currentState.value as? IslandState.Call)?.isExpanded ?: false
+                            )
+                        )
+                    }
+                    else -> {
+                        stateManager.removeState(IslandState.Call::class.java)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleMediaAction(action: MediaAction) {
+        val current = stateManager.currentState.value as? IslandState.Media
+
+        when (action) {
+            MediaAction.PlayPause -> {
+                if (current?.isPlaying == true) mediaRepository.pause()
+                else mediaRepository.play()
+            }
+            MediaAction.Next     -> mediaRepository.next()
+            MediaAction.Previous -> mediaRepository.previous()
+            is MediaAction.Seek  -> {
+                val durationMs = current?.duration ?: 0L
+                if (durationMs > 0L) {
+                    mediaRepository.seekTo((action.position * durationMs).toLong())
+                }
+            }
+        }
+    }
+
+    private fun handleCallAction(action: CallAction) {
+        val callRepo = (application as? DynamicIslandApplication)?.callRepository ?: return
+        when (action) {
+            CallAction.Accept  -> callRepo.acceptCall()
+            CallAction.Decline -> callRepo.declineCall()
+            CallAction.End     -> callRepo.endCall()
+            CallAction.Mute    -> callRepo.toggleMute()
+        }
+    }
+
+    private fun attachMediaSessionListener() {
+        try {
+            val msm = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
+            mediaSessionManager = msm
+
+            val notifListenerComponent = android.content.ComponentName(
+                this, "com.miui.dynamicisland.service.IslandNotificationListener"
+            )
+
+            val initialSessions: List<MediaController>? = try {
+                msm?.getActiveSessions(notifListenerComponent)
+            } catch (e: SecurityException) {
+                IslandLogger.w(TAG, "Notification listener not granted yet – media controls disabled", null)
+                null
+            }
+
+            mediaRepository.updateFromController(initialSessions?.firstOrNull())
+
+            msm?.addOnActiveSessionsChangedListener(
+                mediaSessionListener, notifListenerComponent
+            )
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "MediaSession listener error: ${e.message ?: "unknown"}", e)
+        }
+    }
+
+    private fun registerReceivers() {
+        val audioFilter = IntentFilter().apply {
+            addAction(AudioModeReceiver.ACTION_RINGER_MODE_CHANGED)
+            addAction(AudioModeReceiver.ACTION_VOLUME_CHANGED)
+        }
+        audioUpdateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val mode = intent.getIntExtra(AudioModeReceiver.EXTRA_RINGER_MODE, -1)
+                if (mode != -1) {
+                    stateManager.pushState(
+                        IslandState.Silent(
+                            isSilent   = mode != android.media.AudioManager.RINGER_MODE_NORMAL,
+                            ringerMode = mode
+                        )
+                    )
+                }
+            }
+        }
+
+        ContextCompat.registerReceiver(
+            this, batteryReceiver,
+            IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this, audioUpdateReceiver,
+            audioFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    private fun createNotification() = NotificationCompat
+        .Builder(this, DynamicIslandApplication.CHANNEL_ID)
+        .setContentTitle("Dynamic Island Active")
+        .setContentText("Overlay service running")
+        .setSmallIcon(android.R.drawable.ic_menu_info_details)
+        .setOngoing(true)
+        .build()
+
+    private fun BatteryInfo.ChargeMethod.toIslandChargeMethod(): IslandState.Charging.ChargeMethod =
+        when (this) {
+            BatteryInfo.ChargeMethod.WIRED    -> IslandState.Charging.ChargeMethod.WIRED
+            BatteryInfo.ChargeMethod.WIRELESS -> IslandState.Charging.ChargeMethod.WIRELESS
+            else                              -> IslandState.Charging.ChargeMethod.UNKNOWN
+        }
+
+    override fun onDestroy() {
+        islandView?.let {
+            try { windowManager.removeView(it) }
+            catch (e: Exception) {
+                IslandLogger.e(TAG, "Remove view error: ${e.message ?: "unknown"}", e)
+            }
+        }
+        try {
+            unregisterReceiver(batteryReceiver)
+            audioUpdateReceiver?.let { unregisterReceiver(it) }
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Unregister error: ${e.message ?: "unknown"}", e)
+        }
+        try {
+            mediaSessionManager?.removeOnActiveSessionsChangedListener(mediaSessionListener)
+        } catch (_: Exception) {}
+
+        MediaRepositoryBridge.unregister()
+        stateManager.clearAll()
+        super.onDestroy()
+    }
+}

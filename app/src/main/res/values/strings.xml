@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dynamic Island</string>
+    <string name="notification_listener_description">Required to show notifications in Dynamic Island</string>
+    <string name="channel_name">Dynamic Island Service</string>
+    <string name="channel_description">Persistent service for Dynamic Island overlay</string>
+    <string name="accessibility_service_description">Dynamic Island needs accessibility access to detect notifications, media playback, and system events for the overlay to work properly.</string>
+</resources>

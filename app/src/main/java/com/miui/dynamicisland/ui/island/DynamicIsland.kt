@@ -1,0 +1,290 @@
+// File: app/src/main/java/com/miui/dynamicisland/ui/island/DynamicIsland.kt
+// Purpose: Root composable for the island overlay.
+//          Decides which widget to show, handles tap→expand/collapse.
+// Hinglish: Yahan se poora island control hota hai – state ke hisab se widget dikhta hai
+//           aur tap se expand/collapse hota hai.
+
+package com.miui.dynamicisland.ui.island
+
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.miui.dynamicisland.manager.IslandCalibration
+import com.miui.dynamicisland.manager.IslandStateManager
+import com.miui.dynamicisland.ui.components.*
+import com.miui.dynamicisland.ui.states.IslandState
+import com.miui.dynamicisland.ui.states.withExpanded
+
+// ─── Sealed action type for media controls ────────────────────────────────────
+sealed class MediaAction {
+    object PlayPause : MediaAction()
+    object Next      : MediaAction()
+    object Previous  : MediaAction()
+    data class Seek(val position: Float) : MediaAction()   // 0f–1f progress fraction
+}
+
+// ─── Sealed action type for call controls ─────────────────────────────────────
+sealed class CallAction {
+    object Accept  : CallAction()
+    object Decline : CallAction()
+    object End     : CallAction()
+    object Mute    : CallAction()
+}
+
+// ─── Slot enum for weather widget (LEFT = temperature, RIGHT = icon) ──────────
+enum class WeatherSlot { LEFT, RIGHT }
+
+// ─── Apple HIG dimensions ─────────────────────────────────────────────────────
+private val COMPACT_WIDTH     = 126.dp
+private val COMPACT_HEIGHT    = 37.dp
+private val COMPACT_RADIUS    = 18.5.dp
+
+private const val EXPANDED_WIDTH_DP = 320
+private val MEDIA_EXP_WIDTH   = EXPANDED_WIDTH_DP.dp
+private val MEDIA_EXP_HEIGHT  = 160.dp
+private val MEDIA_EXP_RADIUS  = 42.dp
+
+private val NOTIFY_EXP_HEIGHT = 100.dp
+private val CHARGE_EXP_HEIGHT = 84.dp
+private val DEFAULT_EXP_WIDTH = EXPANDED_WIDTH_DP.dp
+private val DEFAULT_EXP_RADIUS = 30.dp
+
+// ─── Root composable ──────────────────────────────────────────────────────────
+
+@Composable
+fun DynamicIsland(
+    state: IslandState,
+    calibration: IslandCalibration,
+    modifier: Modifier = Modifier,
+    onMediaAction: (MediaAction) -> Unit = {},
+    onCallAction: (CallAction) -> Unit = {}
+) {
+    val stateManager = remember { IslandStateManager.getInstance() }
+    val interactionSource = remember { MutableInteractionSource() }
+
+    // Tap handler: toggle expand/collapse for interactive states
+    val onTap: () -> Unit = remember(state) {
+        {
+            when {
+                state.isExpanded -> stateManager.collapseCurrentState()
+                state.allowInteraction -> stateManager.expandCurrentState(6000L)
+                else -> { /* non-interactive states (Silent, Bluetooth) – no-op */ }
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .wrapContentSize()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onTap
+            ),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        IslandShell(
+            state       = state,
+            calibration = calibration,
+            onMediaAction = onMediaAction,
+            onCallAction = onCallAction
+        )
+    }
+}
+
+// ─── Shell: picks dimensions and content per state ────────────────────────────
+
+@Composable
+private fun IslandShell(
+    state: IslandState,
+    calibration: IslandCalibration,
+    onMediaAction: (MediaAction) -> Unit,
+    onCallAction: (CallAction) -> Unit
+) {
+    // Apply user-calibrated overrides to the compact dimensions
+    val calibW = calibration.pillWidth.dp
+    val calibH = calibration.pillHeight.dp
+    val calibR = calibration.cornerRadius.dp
+
+    when (state) {
+
+        // ── Idle ──────────────────────────────────────────────────────────────
+        is IslandState.Idle -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = calibW,
+                targetHeight       = calibH,
+                targetCornerRadius = calibR,
+                rightContent = { IdleWidget() }
+            )
+        }
+
+        // ── Weather (idle replacement) ────────────────────────────────────────
+        is IslandState.Weather -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = if (state.isExpanded) DEFAULT_EXP_WIDTH else calibW,
+                targetHeight       = if (state.isExpanded) CHARGE_EXP_HEIGHT else calibH,
+                targetCornerRadius = if (state.isExpanded) DEFAULT_EXP_RADIUS else calibR,
+                leftContent = {
+                    WeatherWidget(
+                        state      = state,
+                        isExpanded = state.isExpanded,
+                        slot       = WeatherSlot.LEFT
+                    )
+                },
+                rightContent = {
+                    if (!state.isExpanded) {
+                        WeatherWidget(
+                            state      = state,
+                            isExpanded = false,
+                            slot       = WeatherSlot.RIGHT
+                        )
+                    }
+                }
+            )
+        }
+
+        // ── Media ─────────────────────────────────────────────────────────────
+        is IslandState.Media -> {
+            val targetW = if (state.isExpanded) MEDIA_EXP_WIDTH  else 220.dp
+            val targetH = if (state.isExpanded) MEDIA_EXP_HEIGHT else calibH
+            val targetR = if (state.isExpanded) MEDIA_EXP_RADIUS else calibR
+
+            if (state.isExpanded) {
+                // Expanded: single full-width panel – no dead zone split needed
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    centerDeadZoneWidth = 0.dp,
+                    leftContent = {
+                        MediaWidget(
+                            state         = state,
+                            slot          = MediaSlot.LEFT,
+                            isExpanded    = true,
+                            onMediaAction = onMediaAction
+                        )
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent = {
+                        MediaWidget(state = state, slot = MediaSlot.LEFT, onMediaAction = onMediaAction)
+                    },
+                    rightContent = {
+                        MediaWidget(state = state, slot = MediaSlot.RIGHT, onMediaAction = onMediaAction)
+                    }
+                )
+            }
+        }
+
+        // ── Charging ──────────────────────────────────────────────────────────
+        is IslandState.Charging -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = if (state.isExpanded) DEFAULT_EXP_WIDTH else calibW,
+                targetHeight       = if (state.isExpanded) CHARGE_EXP_HEIGHT else calibH,
+                targetCornerRadius = if (state.isExpanded) DEFAULT_EXP_RADIUS else calibR,
+                leftContent = {
+                    ChargingWidget(
+                        state      = state,
+                        slot       = ChargingSlot.LEFT,
+                        isExpanded = state.isExpanded
+                    )
+                },
+                rightContent = {
+                    if (!state.isExpanded) {
+                        ChargingWidget(state = state, slot = ChargingSlot.RIGHT, isExpanded = false)
+                    }
+                }
+            )
+        }
+
+        // ── Notification ──────────────────────────────────────────────────────
+        is IslandState.Notification -> {
+            val targetW = if (state.isExpanded) DEFAULT_EXP_WIDTH else 260.dp
+            val targetH = if (state.isExpanded) calibH else calibH // Maintain base height
+            val targetR = if (state.isExpanded) calibR else calibR
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth             = targetW,
+                    targetHeight            = targetH,
+                    targetCornerRadius      = targetR,
+                    targetBottomPanelHeight = NOTIFY_EXP_HEIGHT,
+                    leftContent = {
+                        NotificationWidget(state = state, slot = NotificationSlot.LEFT)
+                    },
+                    bottomContent = {
+                        NotificationWidget(state = state, isExpanded = true)
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent  = { NotificationWidget(state = state, slot = NotificationSlot.LEFT) },
+                    rightContent = { /* empty right for notifications */ }
+                )
+            }
+        }
+
+        // ── Bluetooth ─────────────────────────────────────────────────────────
+        is IslandState.Bluetooth -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = 220.dp,
+                targetHeight       = calibH,
+                targetCornerRadius = calibR,
+                leftContent  = { BluetoothWidget(state = state, slot = BluetoothSlot.LEFT) },
+                rightContent = { BluetoothWidget(state = state, slot = BluetoothSlot.RIGHT) }
+            )
+        }
+
+        // ── Silent / DND ──────────────────────────────────────────────────────
+        is IslandState.Silent -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = 160.dp,
+                targetHeight       = calibH,
+                targetCornerRadius = calibR,
+                leftContent  = { SilentWidget(state = state, slot = SilentSlot.LEFT) },
+                rightContent = { SilentWidget(state = state, slot = SilentSlot.RIGHT) }
+            )
+        }
+
+        // ── Volume ────────────────────────────────────────────────────────────
+        is IslandState.Volume -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = calibW,
+                targetHeight       = calibH,
+                targetCornerRadius = calibR,
+                rightContent = { IdleWidget() }   // placeholder; add VolumeWidget if needed
+            )
+        }
+
+        // ── Call ──────────────────────────────────────────────────────────────
+        is IslandState.Call -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = if (state.isExpanded) DEFAULT_EXP_WIDTH else 260.dp,
+                targetHeight       = if (state.isExpanded) 120.dp else calibH,
+                targetCornerRadius = if (state.isExpanded) DEFAULT_EXP_RADIUS else calibR,
+                leftContent  = { CallWidget(state = state, slot = CallSlot.LEFT) },
+                rightContent = { CallWidget(state = state, slot = CallSlot.RIGHT) },
+                bottomContent = {
+                    if (state.isExpanded) {
+                        CallWidget(state = state, slot = CallSlot.BOTTOM, onCallAction = onCallAction)
+                    }
+                }
+            )
+        }
+    }
+}
