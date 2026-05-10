@@ -134,25 +134,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             }
         }
 
-        val statusBarHeight = WindowUtils.getStatusBarHeight(this)
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
-            x = 0
-            y = statusBarHeight
-        }
+        val params = getNonTouchableParams()
 
         try {
             windowManager.addView(view, params)
@@ -163,21 +145,93 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             return
         }
 
+        // Calibration observer
         lifecycleScope.launch {
             calibrationManager.calibration.collectLatest { cal ->
-                val density = resources.displayMetrics.density
-                val baseSafeY = WindowUtils.getStatusBarHeight(this@IslandForegroundService)
-                islandParams?.apply {
-                    x = (cal.offsetX * density).toInt()
-                    y = baseSafeY + (cal.offsetY * density).toInt()
-                }
-                islandView?.let {
-                    try { windowManager.updateViewLayout(it, islandParams) }
-                    catch (e: Exception) {
-                        IslandLogger.e(TAG, "Layout update error: ${e.message ?: "unknown"}", e)
-                    }
-                }
+                updateOverlayParams(cal = cal)
             }
+        }
+
+        // State/flags observer  
+        lifecycleScope.launch {
+            stateManager.currentState.collectLatest { state ->
+                updateOverlayParams(state = state)
+            }
+        }
+    }
+
+    private fun updateOverlayParams(
+        cal: IslandCalibration? = null,
+        state: IslandState? = null
+    ) {
+        val params = islandParams ?: return
+        val view = islandView ?: return
+
+        // Update position if calibration provided
+        cal?.let {
+            val density = resources.displayMetrics.density
+            val baseSafeY = WindowUtils.getStatusBarHeight(this@IslandForegroundService)
+            params.x = (it.offsetX * density).toInt()
+            params.y = baseSafeY + (it.offsetY * density).toInt()
+        }
+
+        // Update flags if state provided
+        state?.let {
+            params.flags = when (it) {
+                is IslandState.Idle ->
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                else ->
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+            }
+        }
+
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Params update error: ${e.message ?: "unknown"}", e)
+        }
+    }
+
+    private fun baseParams(): WindowManager.LayoutParams {
+        val statusBarHeight = WindowUtils.getStatusBarHeight(this)
+        return WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            0,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            x = 0
+            y = 0
+        }
+    }
+
+    private fun getTouchableParams(): WindowManager.LayoutParams {
+        return baseParams().apply {
+            flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        }
+    }
+
+    private fun getNonTouchableParams(): WindowManager.LayoutParams {
+        return baseParams().apply {
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         }
     }
 
@@ -296,15 +350,15 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         lifecycleScope.launch {
             combine(callRepo.callState, callRepo.ongoingDuration) { state, duration ->
                 state to duration
-            }.collectLatest { (state, duration) ->
-                when (state) {
+            }.collectLatest { (callState, duration) ->
+                when (callState) {
                     is com.miui.dynamicisland.data.model.CallState.Ringing -> {
                         stateManager.pushState(
                             IslandState.Call(
-                                callerName = state.phoneNumber ?: "Unknown",
+                                callerName = callState.phoneNumber?.takeIf { it.isNotBlank() } ?: "Incoming Call",
                                 isIncoming = true,
                                 isOngoing = false,
-                                isExpanded = (stateManager.currentState.value as? IslandState.Call)?.isExpanded ?: false
+                                isExpanded = false
                             )
                         )
                     }
@@ -315,7 +369,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 isIncoming = false,
                                 isOngoing = true,
                                 duration = duration,
-                                isExpanded = (stateManager.currentState.value as? IslandState.Call)?.isExpanded ?: false
+                                isExpanded = false
                             )
                         )
                     }
@@ -386,17 +440,33 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         val audioFilter = IntentFilter().apply {
             addAction(AudioModeReceiver.ACTION_RINGER_MODE_CHANGED)
             addAction(AudioModeReceiver.ACTION_VOLUME_CHANGED)
+            addAction("android.media.RINGER_MODE_CHANGED")
         }
         audioUpdateReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                val mode = intent.getIntExtra(AudioModeReceiver.EXTRA_RINGER_MODE, -1)
-                if (mode != -1) {
-                    stateManager.pushState(
-                        IslandState.Silent(
-                            isSilent   = mode != android.media.AudioManager.RINGER_MODE_NORMAL,
-                            ringerMode = mode
-                        )
-                    )
+                when (intent.action) {
+                    "android.media.RINGER_MODE_CHANGED" -> {
+                        val mode = intent.getIntExtra("android.media.EXTRA_RINGER_MODE", -1)
+                        if (mode != -1) {
+                            stateManager.pushState(
+                                IslandState.Silent(
+                                    isSilent = mode != android.media.AudioManager.RINGER_MODE_NORMAL,
+                                    ringerMode = mode
+                                )
+                            )
+                        }
+                    }
+                    AudioModeReceiver.ACTION_RINGER_MODE_CHANGED -> {
+                        val mode = intent.getIntExtra(AudioModeReceiver.EXTRA_RINGER_MODE, -1)
+                        if (mode != -1) {
+                            stateManager.pushState(
+                                IslandState.Silent(
+                                    isSilent = mode != android.media.AudioManager.RINGER_MODE_NORMAL,
+                                    ringerMode = mode
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }

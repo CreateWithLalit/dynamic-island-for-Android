@@ -30,6 +30,13 @@ data class IslandDimensions(
     val cornerRadius: Dp
 )
 
+/** Nullable override values; when a field is null, base sizing logic should be used. */
+data class IslandDimensionsOverride(
+    val width: Dp? = null,
+    val height: Dp? = null,
+    val cornerRadius: Dp? = null
+)
+
 private val Context.islandSizeDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "island_dimensions"
 )
@@ -41,21 +48,18 @@ open class IslandSizeManager(
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
-    // Apple HIG default dimensions per state (compact = 126x37, expanded = 371x84 or larger)
+    // Defaults aligned with current DynamicIsland compact sizing (so enabling overrides won't change UI).
+    // Note: Some states also use global CalibrationManager values at runtime.
     private val defaultDimensions: Map<KClass<out IslandState>, IslandDimensions> = mapOf(
-        // Compact states (126dp x 37dp, radius 18.5dp)
-        IslandState.Idle::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        IslandState.Charging::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        IslandState.Silent::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        IslandState.Volume::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        IslandState.Bluetooth::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        // Notification compact (but may be expanded)
-        IslandState.Notification::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        // Media compact
-        IslandState.Media::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        // Call compact
-        IslandState.Call::class to IslandDimensions(126.dp, 37.dp, 18.5.dp),
-        IslandState.Weather::class to IslandDimensions(126.dp, 37.dp, 18.5.dp)
+        IslandState.Idle::class         to IslandDimensions(126.dp, 37.dp, 18.5.dp),
+        IslandState.Charging::class     to IslandDimensions(126.dp, 37.dp, 18.5.dp),
+        IslandState.Call::class         to IslandDimensions(126.dp, 37.dp, 18.5.dp),
+        IslandState.Weather::class      to IslandDimensions(126.dp, 37.dp, 18.5.dp),
+        IslandState.Volume::class       to IslandDimensions(126.dp, 37.dp, 18.5.dp),
+        IslandState.Media::class        to IslandDimensions(220.dp, 37.dp, 18.5.dp),
+        IslandState.Notification::class to IslandDimensions(215.dp, 37.dp, 18.5.dp),
+        IslandState.Bluetooth::class    to IslandDimensions(220.dp, 37.dp, 18.5.dp),
+        IslandState.Silent::class       to IslandDimensions(160.dp, 37.dp, 18.5.dp)
     )
 
     // Expanded dimensions are handled separately in DynamicIsland logic,
@@ -65,6 +69,10 @@ open class IslandSizeManager(
     private val _currentDimensions = MutableStateFlow(defaultDimensions)
     val dimensionsFlow: StateFlow<Map<KClass<out IslandState>, IslandDimensions>> =
         _currentDimensions.asStateFlow()
+
+    private val _overrides = MutableStateFlow<Map<KClass<out IslandState>, IslandDimensionsOverride>>(emptyMap())
+    val overridesFlow: StateFlow<Map<KClass<out IslandState>, IslandDimensionsOverride>> =
+        _overrides.asStateFlow()
 
     init {
         scope.launch {
@@ -88,6 +96,19 @@ open class IslandSizeManager(
                             cornerRadius = if (radius != null && radius > 0f) radius.dp else default.cornerRadius
                         )
                     }
+
+                    // Keep raw overrides (nullable) so runtime can apply them on top of calibration/base logic.
+                    _overrides.value = defaultDimensions.keys.associateWith { kClass ->
+                        val stateName = kClass.simpleName.orEmpty().lowercase()
+                        val width = preferences[floatPreferencesKey("width_$stateName")]
+                        val height = preferences[floatPreferencesKey("height_$stateName")]
+                        val radius = preferences[floatPreferencesKey("radius_$stateName")]
+                        IslandDimensionsOverride(
+                            width = width?.takeIf { it > 0f }?.dp,
+                            height = height?.takeIf { it > 0f }?.dp,
+                            cornerRadius = radius?.takeIf { it > 0f }?.dp
+                        )
+                    }
                 }
         }
     }
@@ -98,20 +119,51 @@ open class IslandSizeManager(
             ?: IslandDimensions(126.dp, 37.dp, 18.5.dp) // fallback to compact
     }
 
+    fun getDefaultDimensionsForState(stateClass: KClass<out IslandState>): IslandDimensions {
+        return defaultDimensions[stateClass] ?: IslandDimensions(126.dp, 37.dp, 18.5.dp)
+    }
+
+    fun getOverrideForState(stateClass: KClass<out IslandState>): IslandDimensionsOverride {
+        return _overrides.value[stateClass] ?: IslandDimensionsOverride()
+    }
+
     suspend fun updateDimensions(
         state: IslandState,
         width: Float? = null,
         height: Float? = null,
         cornerRadius: Float? = null
     ) {
-        appContext.islandSizeDataStore.edit { preferences ->
-            val stateName = state::class.simpleName.orEmpty().lowercase()
-            if (stateName.isBlank()) return@edit
+        updateDimensions(state::class, width, height, cornerRadius)
+    }
 
-            width?.let { preferences[floatPreferencesKey("width_$stateName")] = it }
-            height?.let { preferences[floatPreferencesKey("height_$stateName")] = it }
-            cornerRadius?.let { preferences[floatPreferencesKey("radius_$stateName")] = it }
+    suspend fun updateDimensions(
+        stateClass: KClass<out IslandState>,
+        width: Float? = null,
+        height: Float? = null,
+        cornerRadius: Float? = null
+    ) {
+        val stateName = stateClass.simpleName.orEmpty().lowercase()
+        if (stateName.isBlank()) return
+
+        appContext.islandSizeDataStore.edit { preferences ->
+            val widthKey = floatPreferencesKey("width_$stateName")
+            val heightKey = floatPreferencesKey("height_$stateName")
+            val radiusKey = floatPreferencesKey("radius_$stateName")
+
+            if (width != null) {
+                if (width > 0f) preferences[widthKey] = width else preferences.remove(widthKey)
+            }
+            if (height != null) {
+                if (height > 0f) preferences[heightKey] = height else preferences.remove(heightKey)
+            }
+            if (cornerRadius != null) {
+                if (cornerRadius > 0f) preferences[radiusKey] = cornerRadius else preferences.remove(radiusKey)
+            }
         }
+    }
+
+    suspend fun clearOverridesForState(stateClass: KClass<out IslandState>) {
+        updateDimensions(stateClass, width = 0f, height = 0f, cornerRadius = 0f)
     }
 
     suspend fun resetAllOverrides() {

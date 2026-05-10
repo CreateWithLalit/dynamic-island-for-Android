@@ -34,7 +34,7 @@ class CalibrationManager(context: Context) {
         val KEY_IS_FIXED = booleanPreferencesKey("is_fixed")
 
         const val DEFAULT_OFFSET_X = 0f
-        const val DEFAULT_OFFSET_Y = 0f
+        const val DEFAULT_OFFSET_Y = -36f
         const val DEFAULT_CORNER_RADIUS = 18.5f
         const val DEFAULT_PILL_WIDTH = 126f
         const val DEFAULT_PILL_HEIGHT = 37f

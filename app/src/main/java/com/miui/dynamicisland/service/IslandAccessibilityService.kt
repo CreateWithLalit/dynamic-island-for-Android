@@ -5,7 +5,9 @@ import android.content.Intent
 import android.graphics.drawable.Drawable
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import com.miui.dynamicisland.data.repository.MediaRepositoryBridge
 import com.miui.dynamicisland.data.repository.NotificationData
 import com.miui.dynamicisland.data.repository.NotificationRepository
@@ -17,26 +19,85 @@ class IslandAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "IslandAccessibilityService"
+        private const val ACTION_ANSWER_CALL = 10
+        private const val ACTION_DISMISS_CALL = 11
         var instance: IslandAccessibilityService? = null
             private set
 
         fun acceptCall(): Boolean {
             val inst = instance ?: return false
-            // GLOBAL_ACTION_ANSWER_CALL = 10
-            return inst.performGlobalAction(10)
+
+            // Method 1: Standard Android 8+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    val result = inst.performGlobalAction(ACTION_ANSWER_CALL)
+                    if (result) return true
+                } catch (e: Exception) {
+                    IslandLogger.e(TAG, "Global accept failed", e)
+                }
+            }
+
+            // Method 2: MIUI specific — simulate tap on answer button
+            try {
+                val root = inst.rootInActiveWindow
+                if (root != null) {
+                    val nodes = root.findAccessibilityNodeInfosByText("Answer")
+                        ?: root.findAccessibilityNodeInfosByText("Accept")
+                        ?: root.findAccessibilityNodeInfosByText("उत्तर दें")
+
+                    nodes?.forEach { node ->
+                        if (node.isClickable) {
+                            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            return true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                IslandLogger.e(TAG, "Node search accept failed", e)
+            }
+
+            return false
         }
 
         fun declineCall(): Boolean {
             val inst = instance ?: return false
-            // GLOBAL_ACTION_DISMISS_NOTIFICATION_ALL = 11
-            val done = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                inst.performGlobalAction(11)
-            } else false
-            
-            if (!done) {
-                inst.performGlobalAction(GLOBAL_ACTION_BACK)
+
+            // Method 1: Standard Android 12+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val result = inst.performGlobalAction(ACTION_DISMISS_CALL)
+                    if (result) return true
+                } catch (e: Exception) {
+                    IslandLogger.e(TAG, "Global decline failed", e)
+                }
             }
-            return true
+
+            // Method 2: Find decline/reject button
+            try {
+                val root = inst.rootInActiveWindow
+                if (root != null) {
+                    val nodes = root.findAccessibilityNodeInfosByText("Decline")
+                        ?: root.findAccessibilityNodeInfosByText("Reject")
+                        ?: root.findAccessibilityNodeInfosByText("अस्वीकार")
+
+                    nodes?.forEach { node ->
+                        if (node.isClickable) {
+                            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            return true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                IslandLogger.e(TAG, "Node search decline failed", e)
+            }
+
+            // Method 3: Back button fallback
+            try {
+                inst.performGlobalAction(GLOBAL_ACTION_BACK)
+            } catch (e: Exception) {
+                IslandLogger.e(TAG, "Back button fallback failed", e)
+            }
+            return false
         }
     }
 

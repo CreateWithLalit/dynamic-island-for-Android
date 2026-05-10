@@ -4,10 +4,13 @@
 
 package com.miui.dynamicisland
 
+import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.calibration.CalibrationActivity
+import com.miui.dynamicisland.settings.IslandSizeSettingsActivity
 import com.miui.dynamicisland.service.IslandForegroundService
 import com.miui.dynamicisland.ui.theme.DynamicIslandTheme
 import com.miui.dynamicisland.util.MIUIUtils
@@ -70,6 +74,20 @@ fun PermissionDiagnosticScreen(
     var hasOverlay by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
     var hasNotification by remember { mutableStateOf(PermissionUtils.isNotificationListenerEnabled(context)) }
     var hasAccessibility by remember { mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context)) }
+    var hasPhoneState by remember { mutableStateOf(PermissionUtils.hasPhoneStatePermission(context)) }
+    var hasAnswerCalls by remember { mutableStateOf(PermissionUtils.hasAnswerCallsPermission(context)) }
+
+    val phonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasPhoneState = granted
+    }
+
+    val answerCallsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasAnswerCalls = granted
+    }
 
     // Auto refresh on resume would be better, but for now a simple check
     LaunchedEffect(Unit) {
@@ -77,6 +95,8 @@ fun PermissionDiagnosticScreen(
             hasOverlay = PermissionUtils.canDrawOverlays(context)
             hasNotification = PermissionUtils.isNotificationListenerEnabled(context)
             hasAccessibility = PermissionUtils.isAccessibilityServiceEnabled(context)
+            hasPhoneState = PermissionUtils.hasPhoneStatePermission(context)
+            hasAnswerCalls = PermissionUtils.hasAnswerCallsPermission(context)
             kotlinx.coroutines.delay(2000)
         }
     }
@@ -114,6 +134,22 @@ fun PermissionDiagnosticScreen(
             onClick = { context.startActivity(PermissionUtils.getAccessibilityServiceIntent(context)) }
         )
 
+        PermissionCard(
+            title = "Phone State",
+            description = "Needed to detect incoming and ongoing calls.",
+            isGranted = hasPhoneState,
+            icon = Icons.Default.Phone,
+            onClick = { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
+        )
+
+        PermissionCard(
+            title = "Answer Calls",
+            description = "Needed for accept/decline actions on supported devices.",
+            isGranted = hasAnswerCalls,
+            icon = Icons.Default.Call,
+            onClick = { answerCallsPermissionLauncher.launch(Manifest.permission.ANSWER_PHONE_CALLS) }
+        )
+
         if (MIUIUtils.isMIUI()) {
             PermissionCard(
                 title = "MIUI AutoStart",
@@ -134,6 +170,18 @@ fun PermissionDiagnosticScreen(
             Icon(Icons.Default.Tune, null, tint = Color.White)
             Spacer(Modifier.width(12.dp))
             Text("Island Calibration", color = Color.White)
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            onClick = { context.startActivity(Intent(context, IslandSizeSettingsActivity::class.java)) },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C1C1E))
+        ) {
+            Icon(Icons.Default.Tune, null, tint = Color.White)
+            Spacer(Modifier.width(12.dp))
+            Text("Island Size Settings", color = Color.White)
         }
 
         Spacer(Modifier.height(16.dp))

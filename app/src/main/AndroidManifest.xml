@@ -44,6 +44,12 @@
             android:excludeFromRecents="true"
             android:theme="@style/Theme.DynamicIsland.Transparent" />
 
+        <activity
+            android:name=".settings.IslandSizeSettingsActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.DynamicIsland.Transparent" />
+
         <service
             android:name=".service.IslandForegroundService"
             android:enabled="true"

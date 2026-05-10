@@ -67,7 +67,7 @@ private fun WeatherCompact(
             WeatherSlot.RIGHT -> {
                 // Condition icon on the right
                 Icon(
-                    imageVector = getWeatherIcon(state.condition),
+                    imageVector = getWeatherIconFromCode(state.iconCode),
                     contentDescription = state.condition,
                     tint = Color.White,
                     modifier = Modifier
@@ -112,7 +112,7 @@ private fun WeatherExpanded(
             )
         }
         Icon(
-            imageVector = getWeatherIcon(state.condition),
+            imageVector = getWeatherIconFromCode(state.iconCode),
             contentDescription = null,
             tint = Color(0xFFFFD60A),
             modifier = Modifier.size(48.dp)
@@ -120,15 +120,15 @@ private fun WeatherExpanded(
     }
 }
 
-// Maps condition string to a safe Material Icon.
-// Icons.Outlined.Bolt requires material-icons-extended (already in build.gradle).
-private fun getWeatherIcon(condition: String): ImageVector {
-    return when (condition.lowercase().trim()) {
-        "clear", "sunny"                                  -> Icons.Default.WbSunny
-        "clouds", "cloudy", "partly cloudy", "overcast"  -> Icons.Default.Cloud
-        "rain", "drizzle", "showers", "mist", "fog"      -> Icons.Default.WbCloudy
-        "thunderstorm", "thunder", "storm"                -> Icons.Outlined.Bolt   // extended icon; safe
-        "snow", "sleet", "hail"                           -> Icons.Default.AcUnit
-        else                                              -> Icons.Default.WbCloudy
-    }
+/** Maps OpenWeatherMap icon codes → safe Material Icons (uses extended where available). */
+private fun getWeatherIconFromCode(iconCode: String): ImageVector = when (iconCode.trim()) {
+    "01d", "01n"                   -> Icons.Default.WbSunny
+    "02d", "02n",
+    "03d", "03n",
+    "04d", "04n"                   -> Icons.Default.Cloud
+    "09d", "09n",
+    "10d", "10n"                   -> Icons.Default.WbCloudy
+    "11d", "11n"                   -> Icons.Outlined.Bolt
+    "13d", "13n"                   -> Icons.Default.AcUnit
+    else                             -> Icons.Default.WbCloudy
 }

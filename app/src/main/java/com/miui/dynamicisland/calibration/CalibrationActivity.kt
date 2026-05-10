@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -36,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.manager.CalibrationManager
 import com.miui.dynamicisland.service.IslandForegroundService
 import com.miui.dynamicisland.ui.theme.DynamicIslandTheme
-import com.miui.dynamicisland.util.IslandLogger
 import com.miui.dynamicisland.util.PermissionUtils
 import com.miui.dynamicisland.util.WindowUtils
 import kotlin.math.roundToInt
@@ -98,23 +98,23 @@ fun CalibrationScreen(
     val calibration by viewModel.calibration.collectAsState()
     val density = LocalDensity.current.density
 
-    // Calculate real camera position for the red dot
+    // Hardware cutout → preview dot (dp from top-center of preview)
     val screenWidth = WindowUtils.getScreenWidth(context)
     val cutoutRect = WindowUtils.getDisplayCutoutRect(context)
-    
+    val statusBarHeight = WindowUtils.getStatusBarHeight(context)
+
     val dotX: Float
     val dotY: Float
-    
+
     if (cutoutRect != null && screenWidth > 0) {
         val centerX = screenWidth / 2f
         val cutoutCenterX = cutoutRect.centerX().toFloat()
+        val cutoutCenterY = cutoutRect.centerY().toFloat()
         dotX = (cutoutCenterX - centerX) / density
-        dotY = 8f // Use slightly offset Y within the preview
-        IslandLogger.d("Calibration", "Hardware cutout detected: X=${cutoutRect.centerX()}, Y=${cutoutRect.centerY()}", null)
+        dotY = (cutoutCenterY - statusBarHeight) / density
     } else {
         dotX = 0f
         dotY = 8f
-        IslandLogger.d("Calibration", "No hardware cutout detected, using default center", null)
     }
 
     // Local state mirrors calibration – updated on every slider/drag event
@@ -152,40 +152,54 @@ fun CalibrationScreen(
         Spacer(Modifier.height(32.dp))
 
         // ── Draggable Preview ─────────────────────────────────────────────────
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(220.dp)
                 .background(Color(0xFF1C1C1E), RoundedCornerShape(16.dp))
-                .padding(8.dp),
-            contentAlignment = Alignment.TopCenter
+                .padding(8.dp)
         ) {
-            // Red dot = camera reference (positioned at real hardware cutout X offset)
-            Box(
-                Modifier
-                    .size(12.dp)
-                    .offset(x = dotX.dp, y = dotY.dp)
-                    .background(Color.Red, CircleShape)
-                    .align(Alignment.TopCenter)
-            )
+            val dotSize = 12.dp
+            val maxX = ((maxWidth - pillWidth.dp).coerceAtLeast(0.dp) / 2)
+            val maxY = (maxHeight - pillHeight.dp).coerceAtLeast(0.dp)
+            val maxDotX = ((maxWidth - dotSize).coerceAtLeast(0.dp) / 2)
+            val maxDotY = (maxHeight - dotSize).coerceAtLeast(0.dp)
+            val clampedDotX = dotX.dp.coerceIn(-maxDotX, maxDotX)
+            val clampedDotY = dotY.dp.coerceIn(0.dp, maxDotY)
 
-            // Draggable island preview
-            Box(
-                modifier = Modifier
-                    .offset(x = offsetX.dp, y = offsetY.dp)
-                    .size(width = pillWidth.dp, height = pillHeight.dp)
-                    .clip(RoundedCornerShape(cornerRadius.dp))
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            offsetX += dragAmount.x / density
-                            offsetY += dragAmount.y / density
-                            // Real-time update → propagates to CalibrationManager → overlay moves
-                            viewModel.updateOffsets(offsetX, offsetY)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                // Red dot = camera reference (positioned at hardware cutout)
+                Box(
+                    Modifier
+                        .size(dotSize)
+                        .offset(x = clampedDotX, y = clampedDotY)
+                        .background(Color.Red, CircleShape)
+                        .align(Alignment.TopCenter)
+                )
+
+                // Draggable island preview
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = offsetX.dp.coerceIn(-maxX, maxX),
+                            y = offsetY.dp.coerceIn(0.dp, maxY)
+                        )
+                        .size(width = pillWidth.dp, height = pillHeight.dp)
+                        .clip(RoundedCornerShape(cornerRadius.dp))
+                        .background(Color.Black)
+                        .pointerInput(maxX, maxY, density) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                val newX = offsetX + (dragAmount.x / density)
+                                val newY = offsetY + (dragAmount.y / density)
+                                offsetX = newX.coerceIn(-maxX.value, maxX.value)
+                                offsetY = newY.coerceIn(0f, maxY.value)
+                                // Real-time update → propagates to CalibrationManager → overlay moves
+                                viewModel.updateOffsets(offsetX, offsetY)
+                            }
                         }
-                    }
-            )
+                )
+            }
         }
 
         Spacer(Modifier.height(24.dp))

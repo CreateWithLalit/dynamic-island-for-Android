@@ -4,6 +4,7 @@
 
 package com.miui.dynamicisland.util
 
+import android.Manifest
 import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import com.miui.dynamicisland.service.IslandAccessibilityService
 
 object PermissionUtils {
@@ -76,5 +78,20 @@ object PermissionUtils {
         return Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+    }
+
+    /** Phone state aur answer-call permissions ke liye runtime checks */
+    fun hasPhoneStatePermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_PHONE_STATE
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    fun hasAnswerCallsPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ANSWER_PHONE_CALLS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 }
