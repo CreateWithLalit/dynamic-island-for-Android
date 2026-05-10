@@ -19,6 +19,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+data class BluetoothInfo(
+    val deviceName: String?,
+    val batteryLevel: Int? = null
+)
+
 class BluetoothRepository(private val context: Context) {
 
     companion object {
@@ -51,25 +56,25 @@ class BluetoothRepository(private val context: Context) {
         awaitClose { context.applicationContext.unregisterReceiver(receiver) }
     }.distinctUntilChanged()
 
-    val connectedDevice: Flow<String?> = callbackFlow {
+    val connectedDevice: Flow<BluetoothInfo> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
-                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                    BluetoothDevice.ACTION_ACL_CONNECTED,
+                    BluetoothDevice.ACTION_ACL_DISCONNECTED,
+                    "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED" -> {
                         val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                         } else {
                             @Suppress("DEPRECATION")
                             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                         }
-                        // FIXED: Corrected signature
-                        IslandLogger.d(TAG, "Bluetooth device connected: ${device?.name}", null)
-                        trySend(device?.name ?: "Connected")
-                    }
-                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                        // FIXED: Corrected signature
-                        IslandLogger.d(TAG, "Bluetooth device disconnected", null)
-                        trySend(null)
+                        
+                        val battery = intent.getIntExtra("android.bluetooth.device.extra.BATTERY_LEVEL", -1)
+                            .takeIf { it != -1 }
+                        
+                        IslandLogger.d(TAG, "Bluetooth event: ${intent.action}, battery: $battery", null)
+                        trySend(BluetoothInfo(getConnectedDeviceName(), battery))
                     }
                 }
             }
@@ -77,6 +82,7 @@ class BluetoothRepository(private val context: Context) {
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction("android.bluetooth.device.action.BATTERY_LEVEL_CHANGED")
         }
         ContextCompat.registerReceiver(
             context.applicationContext,
@@ -84,7 +90,7 @@ class BluetoothRepository(private val context: Context) {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        trySend(getConnectedDeviceName())
+        trySend(BluetoothInfo(getConnectedDeviceName(), null))
         awaitClose { context.applicationContext.unregisterReceiver(receiver) }
     }.distinctUntilChanged()
 

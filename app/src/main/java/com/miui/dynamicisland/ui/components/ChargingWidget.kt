@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.ui.states.IslandState
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.Stroke
 
 private val ChargingGreen = Color(0xFF30D158)
 private val ChargingTextDim = Color.White.copy(alpha = 0.6f)
@@ -42,8 +44,8 @@ fun ChargingWidget(
 @Composable
 private fun ChargingLeftSlot(state: IslandState.Charging, modifier: Modifier = Modifier) {
     Text(
-        text = if (state.isCharging) "Charging" else "Disconnected",
-        color = Color.White,
+        text = "${state.batteryLevel}%",
+        color = ChargingGreen,
         fontSize = 14.sp,
         fontWeight = FontWeight.SemiBold,
         modifier = modifier.padding(start = 8.dp)
@@ -52,13 +54,15 @@ private fun ChargingLeftSlot(state: IslandState.Charging, modifier: Modifier = M
 
 @Composable
 private fun ChargingRightSlot(state: IslandState.Charging, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.wrapContentWidth().padding(end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    Box(
+        modifier = modifier.padding(end = 8.dp),
+        contentAlignment = Alignment.CenterEnd
     ) {
-        Text("${state.batteryLevel}%", color = ChargingGreen, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        IOSBoltIcon(Modifier.size(16.dp))
+        IosBatteryIcon(
+            level = state.batteryLevel,
+            isCharging = state.isCharging,
+            modifier = Modifier.size(width = 24.dp, height = 12.dp)
+        )
     }
 }
 
@@ -77,30 +81,80 @@ private fun ExpandedChargingWidget(state: IslandState.Charging, modifier: Modifi
             )
             Text("${state.batteryLevel}% Charged", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-        IOSBoltIcon(Modifier.size(36.dp), color = ChargingGreen)
+        IosBatteryIcon(
+            level = state.batteryLevel,
+            isCharging = state.isCharging,
+            modifier = Modifier.size(width = 48.dp, height = 24.dp)
+        )
     }
 }
 
 @Composable
-fun IOSBoltIcon(modifier: Modifier = Modifier, color: Color = ChargingGreen) {
+fun IosBatteryIcon(
+    level: Int,
+    isCharging: Boolean,
+    modifier: Modifier = Modifier,
+    color: Color = ChargingGreen
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "bolt_flicker")
-    val alpha by infiniteTransition.animateFloat(
+    val boltAlpha by infiniteTransition.animateFloat(
         initialValue = 1f, targetValue = 0.6f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse)
+        animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "bolt_alpha"
     )
 
     Canvas(modifier = modifier) {
-        val width = size.width
-        val height = size.height
-        val path = Path().apply {
-            moveTo(width * 0.6f, 0f)
-            lineTo(width * 0.1f, height * 0.6f)
-            lineTo(width * 0.45f, height * 0.6f)
-            lineTo(width * 0.35f, height)
-            lineTo(width * 0.9f, height * 0.4f)
-            lineTo(width * 0.55f, height * 0.4f)
-            close()
+        val w = size.width
+        val h = size.height
+        val r = h * 0.2f
+        val strokeWidth = w * 0.05f
+        val innerPadding = strokeWidth * 1.5f
+        
+        // 1. Battery Body (Outline)
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.35f),
+            size = size.copy(width = w * 0.92f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+            style = Stroke(width = strokeWidth)
+        )
+        
+        // 2. Battery Tip (Cap)
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.35f),
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.94f, h * 0.35f),
+            size = androidx.compose.ui.geometry.Size(w * 0.06f, h * 0.3f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r * 0.5f, r * 0.5f)
+        )
+        
+        // 3. Battery Fill
+        val fillWidth = (w * 0.92f - (innerPadding * 2)) * (level / 100f)
+        if (fillWidth > 0) {
+            drawRoundRect(
+                color = if (isCharging) color else if (level <= 20) Color(0xFFFF3B30) else Color.White,
+                topLeft = androidx.compose.ui.geometry.Offset(innerPadding, innerPadding),
+                size = androidx.compose.ui.geometry.Size(fillWidth, h - (innerPadding * 2)),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r * 0.7f, r * 0.7f)
+            )
         }
-        drawPath(path = path, color = color.copy(alpha = alpha))
+        
+        // 4. Charging Bolt (Overlay if charging)
+        if (isCharging) {
+            val boltW = w * 0.4f
+            val boltH = h * 0.8f
+            val boltLeft = (w * 0.92f - boltW) / 2f
+            val boltTop = (h - boltH) / 2f
+            
+            val path = Path().apply {
+                moveTo(boltLeft + boltW * 0.6f, boltTop)
+                lineTo(boltLeft + boltW * 0.1f, boltTop + boltH * 0.6f)
+                lineTo(boltLeft + boltW * 0.45f, boltTop + boltH * 0.6f)
+                lineTo(boltLeft + boltW * 0.35f, boltTop + boltH)
+                lineTo(boltLeft + boltW * 0.9f, boltTop + boltH * 0.4f)
+                lineTo(boltLeft + boltW * 0.55f, boltTop + boltH * 0.4f)
+                close()
+            }
+            drawPath(path = path, color = Color.Black.copy(alpha = 0.5f)) // Shadow/Contrast
+            drawPath(path = path, color = Color.White.copy(alpha = boltAlpha))
+        }
     }
 }

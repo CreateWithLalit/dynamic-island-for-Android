@@ -12,6 +12,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,7 +74,7 @@ private fun BluetoothLeftSlot(
         targetValue = if (triggered) 1f else 0.7f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow   // Apple HIG: low stiffness for smooth pop
+            stiffness = Spring.StiffnessLow
         ),
         label = "bt_pop"
     )
@@ -97,24 +100,57 @@ private fun BluetoothLeftSlot(
     Row(
         modifier = modifier
             .scale(popScale)
-            .padding(start = 8.dp),   // Apple HIG internal padding
+            .padding(start = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)   // slightly larger gap
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(
-            imageVector = if (state.isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
-            contentDescription = if (state.isConnected) "Bluetooth connected" else "Bluetooth",
-            modifier = Modifier.size(20.dp).alpha(iconAlpha),   // 20dp (Apple HIG: 24 but BT icon smaller looks balanced)
-            tint = if (state.isConnected) BtBlue else BtDim
-        )
+        if (state.isConnected) {
+            AirPodsIcon(
+                modifier = Modifier.size(24.dp),
+                tint = Color.White
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Bluetooth,
+                contentDescription = "Bluetooth",
+                modifier = Modifier.size(20.dp).alpha(iconAlpha),
+                tint = BtDim
+            )
+        }
         Text(
             text = state.deviceName.ifBlank { "Bluetooth" },
             color = BtTextPrimary,
-            fontSize = 14.sp,            // Apple HIG: 14pt minimum
+            fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+fun AirPodsIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = w * 0.08f
+
+        // Left AirPod
+        val leftPath = Path().apply {
+            addOval(androidx.compose.ui.geometry.Rect(w * 0.15f, h * 0.2f, w * 0.45f, h * 0.5f))
+            moveTo(w * 0.35f, h * 0.45f)
+            lineTo(w * 0.35f, h * 0.85f)
+        }
+        
+        // Right AirPod
+        val rightPath = Path().apply {
+            addOval(androidx.compose.ui.geometry.Rect(w * 0.55f, h * 0.2f, w * 0.85f, h * 0.5f))
+            moveTo(w * 0.65f, h * 0.45f)
+            lineTo(w * 0.65f, h * 0.85f)
+        }
+
+        drawPath(leftPath, color = tint, style = Stroke(width = strokeWidth))
+        drawPath(rightPath, color = tint, style = Stroke(width = strokeWidth))
     }
 }
 
@@ -126,15 +162,8 @@ private fun BluetoothRightSlot(
     Row(
         modifier = modifier.padding(end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // connected dot indicator
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(if (state.isConnected) BtBlue else BtDim)
-        )
         // battery level if available
         state.batteryLevel?.let { rawLevel ->
             val level = rawLevel.coerceIn(0, 100)
@@ -143,6 +172,20 @@ private fun BluetoothRightSlot(
                 color = if (level <= 20) BtBatteryRed else BtBatteryGreen,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
+            )
+            IosBatteryIcon(
+                level = level,
+                isCharging = false, 
+                modifier = Modifier.size(width = 24.dp, height = 12.dp),
+                color = if (level <= 20) BtBatteryRed else BtBatteryGreen
+            )
+        } ?: run {
+            // fallback connected dot indicator
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (state.isConnected) BtBlue else BtDim)
             )
         }
     }

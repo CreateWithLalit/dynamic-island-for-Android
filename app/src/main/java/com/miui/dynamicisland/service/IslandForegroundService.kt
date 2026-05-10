@@ -6,8 +6,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
-import android.graphics.drawable.Drawable
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.os.Build
@@ -32,6 +33,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.miui.dynamicisland.DynamicIslandApplication
 import com.miui.dynamicisland.data.model.BatteryInfo
 import com.miui.dynamicisland.data.repository.BatteryRepository
+import com.miui.dynamicisland.data.repository.BluetoothRepository
 import com.miui.dynamicisland.data.repository.MediaRepository
 import com.miui.dynamicisland.data.repository.MediaRepositoryBridge
 import com.miui.dynamicisland.data.repository.NotificationRepository
@@ -67,6 +69,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
     private val stateManager = IslandStateManager.getInstance()
     private lateinit var calibrationManager: CalibrationManager
     private lateinit var batteryRepository: BatteryRepository
+    private lateinit var bluetoothRepository: BluetoothRepository
     lateinit var mediaRepository: MediaRepository
         private set
     private lateinit var weatherRepository: WeatherRepository
@@ -95,6 +98,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         windowManager     = getSystemService(WINDOW_SERVICE) as WindowManager
         calibrationManager = CalibrationManager(this)
         batteryRepository  = BatteryRepository(this)
+        bluetoothRepository = BluetoothRepository(this)
         mediaRepository    = MediaRepository(this)
         MediaRepositoryBridge.register(mediaRepository)
         weatherRepository  = WeatherRepository(this)
@@ -107,8 +111,31 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         observeWeather()
         observeMedia()
         observeBattery()
+        observeBluetooth()
         observeNotifications()
         observeCalls()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                IslandLogger.d(TAG, "Stop action received", null)
+                stopForeground(true)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_START, null -> {
+                // Ensure foreground notification exists (service may be restarted by system)
+                try {
+                    startForeground(1001, createNotification())
+                } catch (_: Exception) {
+                    // no-op
+                }
+                // Ensure overlay is attached
+                initializeOverlay()
+            }
+        }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     private fun initializeOverlay() {
@@ -125,6 +152,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                 val calibration  by calibrationManager.calibration.collectAsState(
                     initial = IslandCalibration.default()
                 )
+                
                 DynamicIsland(
                     state         = currentState,
                     calibration   = calibration,
@@ -167,7 +195,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         val params = islandParams ?: return
         val view = islandView ?: return
 
-        // Update position if calibration provided
+        // 1. Position Update
         cal?.let {
             val density = resources.displayMetrics.density
             val baseSafeY = WindowUtils.getStatusBarHeight(this@IslandForegroundService)
@@ -175,27 +203,34 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             params.y = baseSafeY + (it.offsetY * density).toInt()
         }
 
-        // Update flags if state provided
+        // 2. Flags Update (Touch handling)
         state?.let {
-            params.flags = when (it) {
-                is IslandState.Idle ->
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                else ->
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-            }
+            // ALWAYS keep FLAG_NOT_FOCUSABLE to allow fingerprint and back gestures.
+            // FLAG_NOT_TOUCH_MODAL ensures clicks inside the island work while 
+            // clicks outside pass through to the system/apps.
+            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                           WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                           WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         }
 
         try {
             windowManager.updateViewLayout(view, params)
         } catch (e: Exception) {
             IslandLogger.e(TAG, "Params update error: ${e.message ?: "unknown"}", e)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        
+        // Full visibility toggle based on orientation
+        islandView?.let { view ->
+            val isPortrait = newConfig.orientation == Configuration.ORIENTATION_PORTRAIT
+            view.visibility = if (isPortrait) android.view.View.VISIBLE else android.view.View.GONE
+            
+            // Log for debugging
+            IslandLogger.d(TAG, "Orientation changed. Visible: $isPortrait", null)
         }
     }
 
@@ -209,6 +244,9 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            // Remove screenOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT 
+            // as it locks the entire system. 
+            // Instead, we will hide the island in landscape mode.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -326,6 +364,24 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         }
     }
 
+    private fun observeBluetooth() {
+        lifecycleScope.launch {
+            bluetoothRepository.connectedDevice.collectLatest { info ->
+                if (info.deviceName != null) {
+                    stateManager.pushState(
+                        IslandState.Bluetooth(
+                            isConnected = true,
+                            deviceName = info.deviceName,
+                            batteryLevel = info.batteryLevel
+                        )
+                    )
+                } else {
+                    stateManager.removeState(IslandState.Bluetooth::class.java)
+                }
+            }
+        }
+    }
+
     private fun observeNotifications() {
         lifecycleScope.launch {
             NotificationRepository.notifications.collectLatest { notification ->
@@ -369,7 +425,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 isIncoming = false,
                                 isOngoing = true,
                                 duration = duration,
-                                isExpanded = false
+                                isExpanded = (stateManager.currentState.value as? IslandState.Call)?.isExpanded ?: false
                             )
                         )
                     }

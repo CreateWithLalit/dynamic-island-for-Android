@@ -68,23 +68,37 @@ private fun MediaCompactWidget(
 ) {
     when (slot) {
         MediaSlot.LEFT -> {
-            Box(modifier = modifier.padding(start = 8.dp), contentAlignment = Alignment.CenterStart) {
+            Box(modifier = modifier.padding(start = 10.dp), contentAlignment = Alignment.CenterStart) {
                 if (state.albumArt != null) {
                     Image(
                         bitmap = state.albumArt.asImageBitmap(),
                         contentDescription = "Art",
-                        modifier = Modifier.size(26.dp).clip(CircleShape),
+                        modifier = Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
                     )
                 } else if (state.albumArtUri != null) {
                     AsyncImage(
                         model = state.albumArtUri,
                         contentDescription = "Art",
-                        modifier = Modifier.size(26.dp).clip(CircleShape),
+                        modifier = Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp), MediaTextSecondary)
+                    if (state.packageName.isNotBlank()) {
+                        IosAppIcon(
+                            packageName = state.packageName,
+                            appName = state.packageName.substringAfterLast('.').ifBlank { "Music" },
+                            size = 24.dp
+                        )
+                    } else {
+                        IosGlyphIcon(
+                            icon = Icons.Default.MusicNote,
+                            contentDescription = "Music",
+                            containerSize = 24.dp,
+                            iconSize = 16.dp,
+                            tint = MediaTextSecondary
+                        )
+                    }
                 }
             }
         }
@@ -96,7 +110,7 @@ private fun MediaCompactWidget(
 
             Box(
                 modifier = modifier
-                    .padding(end = 8.dp)
+                    .padding(end = 10.dp)
                     .clickable { onMediaAction(MediaAction.PlayPause) },
                 contentAlignment = Alignment.CenterEnd
             ) {
@@ -162,7 +176,22 @@ private fun MediaExpandedWidget(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Icon(Icons.Default.MusicNote, null, Modifier.size(32.dp), MediaTextSecondary)
+                    if (state.packageName.isNotBlank()) {
+                        IosAppIcon(
+                            packageName = state.packageName,
+                            appName = state.packageName.substringAfterLast('.').ifBlank { "Music" },
+                            size = 56.dp,
+                            contentPadding = 4.dp
+                        )
+                    } else {
+                        IosGlyphIcon(
+                            icon = Icons.Default.MusicNote,
+                            contentDescription = "Music",
+                            containerSize = 56.dp,
+                            iconSize = 28.dp,
+                            tint = MediaTextSecondary
+                        )
+                    }
                 }
             }
             Spacer(Modifier.width(12.dp))

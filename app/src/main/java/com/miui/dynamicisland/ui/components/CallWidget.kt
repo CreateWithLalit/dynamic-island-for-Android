@@ -86,7 +86,7 @@ private fun CallLeftSlot(
     )
 
     Row(
-        modifier = modifier.padding(start = 8.dp),
+        modifier = modifier.padding(start = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -103,10 +103,17 @@ private fun CallLeftSlot(
                     }
                 )
         )
-        Icon(
-            imageVector = Icons.Default.Call,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
+        IosDrawableOrGlyphIcon(
+            drawableNameCandidates = listOf(
+                "ios_call",
+                "ic_ios_call",
+                "ios_phone",
+                "ic_ios_phone"
+            ),
+            fallbackIcon = Icons.Default.Call,
+            contentDescription = "Call",
+            containerSize = 24.dp,
+            iconSize = 16.dp,
             tint = CallTextPrimary
         )
         Text(

@@ -1,11 +1,9 @@
 // File: app/src/main/java/com/miui/dynamicisland/ui/components/NotificationWidget.kt
 package com.miui.dynamicisland.ui.components
 
-import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,13 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import com.miui.dynamicisland.ui.states.IslandState
 
 private val NotifTextPrimary = Color.White
@@ -73,8 +68,13 @@ private fun NotificationLeftSlot(
         animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow)
     )
     LaunchedEffect(state.packageName, state.postTime) { appeared = false; appeared = true }
-    Box(modifier = modifier.scale(popScale).padding(start = 8.dp)) {
-        NotificationAppIcon(state.appIcon, state.appName, size = 28)
+    Box(modifier = modifier.scale(popScale).padding(start = 10.dp)) {
+        IosAppIcon(
+            packageName = state.packageName,
+            appName = state.appName,
+            size = 24.dp,
+            fallbackDrawable = state.appIcon,
+        )
     }
 }
 
@@ -92,9 +92,14 @@ private fun NotificationBottomBanner(
     Row(
         modifier = modifier.wrapContentWidth().scale(popScale),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        NotificationAppIcon(state.appIcon, state.appName, size = 32)
+        IosAppIcon(
+            packageName = state.packageName,
+            appName = state.appName,
+            size = 32.dp,
+            fallbackDrawable = state.appIcon,
+        )
         Column(modifier = Modifier.widthIn(max = 240.dp)) {
             Text(state.appName, color = NotifTextSecondary, fontSize = 12.sp,
                 fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -110,29 +115,3 @@ private fun NotificationBottomBanner(
     }
 }
 
-@Composable
-private fun NotificationAppIcon(drawable: Drawable?, appName: String, size: Int = 28) {
-    val bitmap = remember(drawable) {
-        runCatching { drawable?.toBitmap(width = size, height = size) }.getOrNull()
-    }
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = appName,
-            modifier = Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.25f).dp)),
-            contentScale = ContentScale.Crop
-        )
-    } else {
-        Box(
-            modifier = Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.25f).dp)).background(NotifIconBg),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = appName.firstOrNull()?.uppercase() ?: "?",
-                color = NotifTextSecondary,
-                fontSize = (size * 0.45f).sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-    }
-}
