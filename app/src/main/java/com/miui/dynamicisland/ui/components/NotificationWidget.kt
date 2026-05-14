@@ -33,6 +33,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.ui.states.IslandState
+import com.miui.dynamicisland.util.IconUtils
+import androidx.compose.foundation.Image
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 
 private val NotifTextPrimary = Color.White
 private val NotifTextSecondary = Color.White.copy(alpha = 0.6f)

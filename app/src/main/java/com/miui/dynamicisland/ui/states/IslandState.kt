@@ -65,7 +65,7 @@ sealed class IslandState(
         val deviceName: String = "",
         val batteryLevel: Int? = null,
         override val isExpanded: Boolean = false
-    ) : IslandState(10, 2500L, false, isExpanded)
+    ) : IslandState(35, 3000L, false, isExpanded)
 
     data class Silent(
         val isSilent: Boolean = true,

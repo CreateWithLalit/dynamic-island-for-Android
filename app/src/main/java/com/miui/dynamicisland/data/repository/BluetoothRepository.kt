@@ -62,7 +62,11 @@ class BluetoothRepository(private val context: Context) {
                 when (intent.action) {
                     BluetoothDevice.ACTION_ACL_CONNECTED,
                     BluetoothDevice.ACTION_ACL_DISCONNECTED,
-                    "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED" -> {
+                    "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED",
+                    "android.bluetooth.adapter.action.CONNECTION_STATE_CHANGED",
+                    "android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED",
+                    "android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED" -> {
+                        
                         val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                         } else {
@@ -70,8 +74,10 @@ class BluetoothRepository(private val context: Context) {
                             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                         }
                         
+                        // Try multiple ways to get battery
                         val battery = intent.getIntExtra("android.bluetooth.device.extra.BATTERY_LEVEL", -1)
                             .takeIf { it != -1 }
+                            ?: getBatteryViaReflection(device)
                         
                         IslandLogger.d(TAG, "Bluetooth event: ${intent.action}, battery: $battery", null)
                         trySend(BluetoothInfo(getConnectedDeviceName(), battery))
@@ -83,6 +89,9 @@ class BluetoothRepository(private val context: Context) {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
             addAction("android.bluetooth.device.action.BATTERY_LEVEL_CHANGED")
+            addAction("android.bluetooth.adapter.action.CONNECTION_STATE_CHANGED")
+            addAction("android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED")
+            addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
         }
         ContextCompat.registerReceiver(
             context.applicationContext,
@@ -90,9 +99,24 @@ class BluetoothRepository(private val context: Context) {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        trySend(BluetoothInfo(getConnectedDeviceName(), null))
+        
+        // Initial state check
+        val initialName = getConnectedDeviceName()
+        trySend(BluetoothInfo(initialName, null))
+        
         awaitClose { context.applicationContext.unregisterReceiver(receiver) }
     }.distinctUntilChanged()
+
+    private fun getBatteryViaReflection(device: BluetoothDevice?): Int? {
+        if (device == null) return null
+        return try {
+            val method = device.javaClass.getMethod("getBatteryLevel")
+            val level = method.invoke(device) as Int
+            if (level >= 0) level else null
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     private fun getConnectedDeviceName(): String? {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) return null

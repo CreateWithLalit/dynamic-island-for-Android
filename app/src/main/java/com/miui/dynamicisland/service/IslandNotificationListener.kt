@@ -20,7 +20,9 @@ class IslandNotificationListener : NotificationListenerService() {
     private val ignoredPackages = setOf(
         "android",
         "com.android.systemui",
-        "com.miui.dynamicisland"
+        "com.miui.dynamicisland",
+        "com.android.settings",
+        "com.google.android.gms" // Ignore Google Play Services background alerts
     )
 
     override fun onListenerConnected() {
@@ -47,37 +49,37 @@ class IslandNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName
 
+        // 1. Refined Blacklist & System Noise Filter
         if (packageName in ignoredPackages) return
-        if (sbn.isOngoing) return
+        if (sbn.isOngoing || (sbn.notification.flags and android.app.Notification.FLAG_ONGOING_EVENT != 0)) return
         if (sbn.notification.extras.containsKey("android.mediaSession")) return
 
         val title = sbn.notification.extras
-            .getCharSequence(Notification.EXTRA_TITLE)
+            .getCharSequence(android.app.Notification.EXTRA_TITLE)
             ?.toString()
             .orEmpty()
 
         val content = sbn.notification.extras
-            .getCharSequence(Notification.EXTRA_TEXT)
+            .getCharSequence(android.app.Notification.EXTRA_TEXT)
             ?.toString()
             .orEmpty()
 
         if (title.isBlank() && content.isBlank()) return
 
-        // Real app name
+        // 2. Real App Metadata (Universal Launcher Icon)
         val realAppName: String = try {
             val appInfo = packageManager.getApplicationInfo(packageName, 0)
             packageManager.getApplicationLabel(appInfo).toString()
         } catch (e: Exception) {
             IslandLogger.d(TAG, "Label fetch failed for $packageName", e)
-            packageName  // fallback to package name
+            packageName
         }
 
-        // Real app icon Drawable
         val appIconDrawable: Drawable? = try {
             packageManager.getApplicationIcon(packageName)
         } catch (e: Exception) {
             IslandLogger.d(TAG, "Icon fetch failed for $packageName", e)
-            null  // fallback -> "C" letter will show
+            null
         }
 
         val notificationData = NotificationData(
@@ -90,7 +92,7 @@ class IslandNotificationListener : NotificationListenerService() {
             isNotEmpty = true
         )
 
-        IslandLogger.d(TAG, "Posting notification from: $packageName", null)
+        IslandLogger.d(TAG, "Posting high-res notification from: $packageName", null)
         NotificationRepository.postNotification(notificationData)
     }
 

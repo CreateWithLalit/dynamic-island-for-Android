@@ -37,8 +37,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.miui.dynamicisland.util.IconUtils
 import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import coil.compose.AsyncImage
 import kotlin.math.roundToInt
 
 private val DefaultIosIconBg = Color(0xFF2C2C2E)
@@ -154,14 +156,9 @@ fun IosAppIcon(
 ) {
     val context = LocalContext.current
     val resId = remember(packageName) { findIosIconResId(context, packageName) }
-    val px = with(LocalDensity.current) { size.toPx().roundToInt().coerceAtLeast(1) }
 
     val resolvedDrawable = remember(packageName, fallbackDrawable) {
         fallbackDrawable ?: loadAppIconFromPackageManager(context, packageName)
-    }
-
-    val bitmap = remember(resId, resolvedDrawable, px) {
-        if (resId == 0) drawableToBitmap(resolvedDrawable, px) else null
     }
 
     val radius = size * 0.28f
@@ -187,16 +184,32 @@ fun IosAppIcon(
                 )
             }
 
-            bitmap != null -> {
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = appName,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(contentPadding)
-                        .clip(RoundedCornerShape(radius - 1.dp)),
-                    contentScale = ContentScale.Crop
-                )
+            resolvedDrawable != null -> {
+                val density = LocalDensity.current
+                val sizePx = remember(size) { with(density) { size.toPx().toInt() } }
+                val imageBitmap = remember(resolvedDrawable, sizePx) {
+                    IconUtils.drawableToImageBitmap(resolvedDrawable, sizePx)
+                }
+
+                if (imageBitmap != null) {
+                    Image(
+                        bitmap = imageBitmap,
+                        contentDescription = appName,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(contentPadding)
+                            .clip(RoundedCornerShape(radius - 1.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    // Fallback to text if bitmap conversion fails
+                    Text(
+                        text = appName.firstOrNull()?.uppercase() ?: "?",
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = (size.value * 0.45f).sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             else -> {

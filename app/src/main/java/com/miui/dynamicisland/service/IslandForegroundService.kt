@@ -336,22 +336,14 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             var wasCharging = false
             batteryRepository.batteryInfo.collectLatest { battery ->
                 if (battery.isCharging) {
-                    val current = stateManager.currentState.value
-                    val isAlreadyExpanded = (current as? IslandState.Charging)?.isExpanded == true
-
                     stateManager.pushState(
                         IslandState.Charging(
                             batteryLevel = battery.level,
                             isCharging   = true,
                             chargeMethod = battery.chargeMethod.toIslandChargeMethod(),
-                            isExpanded   = isAlreadyExpanded
+                            isExpanded   = false // Always stay in compact pill mode
                         )
                     )
-                    
-                    if (!wasCharging) {
-                        // Automatically expand for 5 seconds when first plugged in
-                        stateManager.expandCurrentState(5000L)
-                    }
                     wasCharging = true
                 } else {
                     if (wasCharging) {
@@ -368,6 +360,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         lifecycleScope.launch {
             bluetoothRepository.connectedDevice.collectLatest { info ->
                 if (info.deviceName != null) {
+                    // Force a slightly longer duration (5s) to ensure visibility
                     stateManager.pushState(
                         IslandState.Bluetooth(
                             isConnected = true,
@@ -375,8 +368,12 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             batteryLevel = info.batteryLevel
                         )
                     )
+                    IslandLogger.d(TAG, "Bluetooth state pushed: ${info.deviceName}, battery: ${info.batteryLevel}", null)
                 } else {
-                    stateManager.removeState(IslandState.Bluetooth::class.java)
+                    // Only remove if it was actually connected before
+                    if (stateManager.currentState.value is IslandState.Bluetooth) {
+                        stateManager.removeState(IslandState.Bluetooth::class.java)
+                    }
                 }
             }
         }
@@ -425,7 +422,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 isIncoming = false,
                                 isOngoing = true,
                                 duration = duration,
-                                isExpanded = (stateManager.currentState.value as? IslandState.Call)?.isExpanded ?: false
+                                isExpanded = false
                             )
                         )
                     }

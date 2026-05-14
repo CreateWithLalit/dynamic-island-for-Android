@@ -135,22 +135,33 @@ fun AirPodsIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
         val h = size.height
         val strokeWidth = w * 0.08f
 
-        // Left AirPod
-        val leftPath = Path().apply {
-            addOval(androidx.compose.ui.geometry.Rect(w * 0.15f, h * 0.2f, w * 0.45f, h * 0.5f))
-            moveTo(w * 0.35f, h * 0.45f)
-            lineTo(w * 0.35f, h * 0.85f)
+        // Left Earbud
+        val leftEar = Path().apply {
+            // Head (rounded top)
+            addOval(androidx.compose.ui.geometry.Rect(w * 0.12f, h * 0.25f, w * 0.42f, h * 0.55f))
+            // Stem
+            moveTo(w * 0.27f, h * 0.55f)
+            lineTo(w * 0.27f, h * 0.85f)
         }
         
-        // Right AirPod
-        val rightPath = Path().apply {
-            addOval(androidx.compose.ui.geometry.Rect(w * 0.55f, h * 0.2f, w * 0.85f, h * 0.5f))
-            moveTo(w * 0.65f, h * 0.45f)
-            lineTo(w * 0.65f, h * 0.85f)
+        // Right Earbud
+        val rightEar = Path().apply {
+            // Head (rounded top)
+            addOval(androidx.compose.ui.geometry.Rect(w * 0.58f, h * 0.25f, w * 0.88f, h * 0.55f))
+            // Stem
+            moveTo(w * 0.73f, h * 0.55f)
+            lineTo(w * 0.73f, h * 0.85f)
         }
 
-        drawPath(leftPath, color = tint, style = Stroke(width = strokeWidth))
-        drawPath(rightPath, color = tint, style = Stroke(width = strokeWidth))
+        drawPath(leftEar, color = tint, style = Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        drawPath(rightEar, color = tint, style = Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        
+        // Center dot (connectivity)
+        drawCircle(
+            color = tint.copy(alpha = 0.8f),
+            radius = w * 0.05f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.7f)
+        )
     }
 }
 
