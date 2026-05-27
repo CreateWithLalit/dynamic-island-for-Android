@@ -6,6 +6,7 @@ package com.miui.dynamicisland
 
 import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.calibration.CalibrationActivity
 import com.miui.dynamicisland.settings.IslandSizeSettingsActivity
+import com.miui.dynamicisland.service.BluetoothIslandService
 import com.miui.dynamicisland.service.IslandForegroundService
 import com.miui.dynamicisland.ui.theme.DynamicIslandTheme
 import com.miui.dynamicisland.util.MIUIUtils
@@ -42,7 +44,9 @@ class MainActivity : ComponentActivity() {
                     PermissionDiagnosticScreen(
                         onCalibrationClick = { startActivity(Intent(this, CalibrationActivity::class.java)) },
                         onStartService = { startIslandService() },
-                        onStopService = { stopIslandService() }
+                        onStopService = { stopIslandService() },
+                        onStartBluetoothIsland = { startBluetoothIslandService() },
+                        onStopBluetoothIsland = { stopBluetoothIslandService() }
                     )
                 }
             }
@@ -62,13 +66,29 @@ class MainActivity : ComponentActivity() {
         }
         startForegroundService(intent)
     }
+
+    private fun startBluetoothIslandService() {
+        val intent = Intent(this, BluetoothIslandService::class.java).apply {
+            action = BluetoothIslandService.ACTION_START
+        }
+        startForegroundService(intent)
+    }
+
+    private fun stopBluetoothIslandService() {
+        val intent = Intent(this, BluetoothIslandService::class.java).apply {
+            action = BluetoothIslandService.ACTION_STOP
+        }
+        startForegroundService(intent)
+    }
 }
 
 @Composable
 fun PermissionDiagnosticScreen(
     onCalibrationClick: () -> Unit,
     onStartService: () -> Unit,
-    onStopService: () -> Unit
+    onStopService: () -> Unit,
+    onStartBluetoothIsland: () -> Unit,
+    onStopBluetoothIsland: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var hasOverlay by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
@@ -76,6 +96,7 @@ fun PermissionDiagnosticScreen(
     var hasAccessibility by remember { mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context)) }
     var hasPhoneState by remember { mutableStateOf(PermissionUtils.hasPhoneStatePermission(context)) }
     var hasAnswerCalls by remember { mutableStateOf(PermissionUtils.hasAnswerCallsPermission(context)) }
+    var hasBluetoothConnect by remember { mutableStateOf(PermissionUtils.hasBluetoothConnectPermission(context)) }
 
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -89,6 +110,12 @@ fun PermissionDiagnosticScreen(
         hasAnswerCalls = granted
     }
 
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasBluetoothConnect = granted
+    }
+
     // Auto refresh on resume would be better, but for now a simple check
     LaunchedEffect(Unit) {
         while(true) {
@@ -97,6 +124,7 @@ fun PermissionDiagnosticScreen(
             hasAccessibility = PermissionUtils.isAccessibilityServiceEnabled(context)
             hasPhoneState = PermissionUtils.hasPhoneStatePermission(context)
             hasAnswerCalls = PermissionUtils.hasAnswerCallsPermission(context)
+            hasBluetoothConnect = PermissionUtils.hasBluetoothConnectPermission(context)
             kotlinx.coroutines.delay(2000)
         }
     }
@@ -150,6 +178,18 @@ fun PermissionDiagnosticScreen(
             onClick = { answerCallsPermissionLauncher.launch(Manifest.permission.ANSWER_PHONE_CALLS) }
         )
 
+        PermissionCard(
+            title = "Bluetooth Connect",
+            description = "Needed to read Bluetooth device battery.",
+            isGranted = hasBluetoothConnect,
+            icon = Icons.Default.Bluetooth,
+            onClick = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                }
+            }
+        )
+
         if (MIUIUtils.isMIUI()) {
             PermissionCard(
                 title = "MIUI AutoStart",
@@ -201,6 +241,26 @@ fun PermissionDiagnosticScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30))
             ) {
                 Text("Stop Service", color = Color.White)
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Button(
+                onClick = onStartBluetoothIsland,
+                modifier = Modifier.weight(1f).height(56.dp),
+                enabled = hasOverlay && hasBluetoothConnect,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF30D158))
+            ) {
+                Text("Start Bluetooth Island", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onStopBluetoothIsland,
+                modifier = Modifier.weight(1f).height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30))
+            ) {
+                Text("Stop Bluetooth Island", color = Color.White)
             }
         }
     }
