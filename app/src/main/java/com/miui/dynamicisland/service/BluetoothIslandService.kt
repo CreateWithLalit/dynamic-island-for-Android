@@ -32,6 +32,7 @@ import com.miui.dynamicisland.DynamicIslandApplication
 import com.miui.dynamicisland.R
 import com.miui.dynamicisland.ui.bluetooth.DynamicBluetoothIslandOverlay
 import com.miui.dynamicisland.util.IslandLogger
+import com.miui.dynamicisland.util.OverlaySettings
 
 class BluetoothIslandService : LifecycleService(), ViewModelStoreOwner, SavedStateRegistryOwner {
 
@@ -197,6 +198,15 @@ class BluetoothIslandService : LifecycleService(), ViewModelStoreOwner, SavedSta
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = dpToPx(20)
+            applyLockScreenFlags(this)
+        }
+    }
+
+    private fun applyLockScreenFlags(params: WindowManager.LayoutParams) {
+        if (OverlaySettings.isLockScreenOverlayEnabled(this) &&
+            !OverlaySettings.isAccessibilityOverlayEnabled(this)
+        ) {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         }
     }
 

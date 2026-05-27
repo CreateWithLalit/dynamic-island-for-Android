@@ -33,6 +33,7 @@ import com.miui.dynamicisland.service.IslandForegroundService
 import com.miui.dynamicisland.ui.theme.DynamicIslandTheme
 import com.miui.dynamicisland.util.MIUIUtils
 import com.miui.dynamicisland.util.PermissionUtils
+import com.miui.dynamicisland.util.OverlaySettings
 
 class MainActivity : ComponentActivity() {
 
@@ -97,6 +98,8 @@ fun PermissionDiagnosticScreen(
     var hasPhoneState by remember { mutableStateOf(PermissionUtils.hasPhoneStatePermission(context)) }
     var hasAnswerCalls by remember { mutableStateOf(PermissionUtils.hasAnswerCallsPermission(context)) }
     var hasBluetoothConnect by remember { mutableStateOf(PermissionUtils.hasBluetoothConnectPermission(context)) }
+    var useAccessibilityOverlay by remember { mutableStateOf(OverlaySettings.isAccessibilityOverlayEnabled(context)) }
+    var allowLockScreenOverlay by remember { mutableStateOf(OverlaySettings.isLockScreenOverlayEnabled(context)) }
 
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -160,6 +163,28 @@ fun PermissionDiagnosticScreen(
             isGranted = hasAccessibility,
             icon = Icons.Default.AccessibilityNew,
             onClick = { context.startActivity(PermissionUtils.getAccessibilityServiceIntent(context)) }
+        )
+
+        SettingToggleCard(
+            title = "Accessibility Overlay Mode",
+            description = "Uses AccessibilityService overlay to attempt lock screen/AOD visibility.",
+            isEnabled = hasAccessibility,
+            isChecked = useAccessibilityOverlay,
+            onCheckedChange = { enabled ->
+                useAccessibilityOverlay = enabled
+                OverlaySettings.setAccessibilityOverlayEnabled(context, enabled)
+            }
+        )
+
+        SettingToggleCard(
+            title = "Show On Lock Screen (Best Effort)",
+            description = "Adds lock screen window flags to app overlays.",
+            isEnabled = true,
+            isChecked = allowLockScreenOverlay,
+            onCheckedChange = { enabled ->
+                allowLockScreenOverlay = enabled
+                OverlaySettings.setLockScreenOverlayEnabled(context, enabled)
+            }
         )
 
         PermissionCard(
@@ -262,6 +287,35 @@ fun PermissionDiagnosticScreen(
             ) {
                 Text("Stop Bluetooth Island", color = Color.White)
             }
+        }
+    }
+}
+
+@Composable
+fun SettingToggleCard(
+    title: String,
+    description: String,
+    isEnabled: Boolean,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E))
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold)
+                Text(description, color = Color.Gray, fontSize = 12.sp)
+            }
+            Switch(
+                checked = isChecked,
+                onCheckedChange = { if (isEnabled) onCheckedChange(it) },
+                enabled = isEnabled
+            )
         }
     }
 }

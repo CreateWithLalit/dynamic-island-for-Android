@@ -49,6 +49,7 @@ import com.miui.dynamicisland.ui.island.MediaAction
 import com.miui.dynamicisland.ui.states.IslandState
 import com.miui.dynamicisland.util.IslandLogger
 import com.miui.dynamicisland.util.WindowUtils
+import com.miui.dynamicisland.util.OverlaySettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -139,6 +140,10 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
     }
 
     private fun initializeOverlay() {
+        if (OverlaySettings.isAccessibilityOverlayEnabled(this)) {
+            removeAppOverlay()
+            return
+        }
         if (islandView != null) return
 
         val view = ComposeView(this).apply {
@@ -192,6 +197,10 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         cal: IslandCalibration? = null,
         state: IslandState? = null
     ) {
+        if (OverlaySettings.isAccessibilityOverlayEnabled(this)) {
+            removeAppOverlay()
+            return
+        }
         val params = islandParams ?: return
         val view = islandView ?: return
 
@@ -212,6 +221,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            applyLockScreenFlags(params)
         }
 
         try {
@@ -261,6 +271,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            applyLockScreenFlags(this)
         }
     }
 
@@ -270,7 +281,28 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            applyLockScreenFlags(this)
         }
+    }
+
+    private fun applyLockScreenFlags(params: WindowManager.LayoutParams) {
+        if (OverlaySettings.isLockScreenOverlayEnabled(this) &&
+            !OverlaySettings.isAccessibilityOverlayEnabled(this)
+        ) {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+        }
+    }
+
+    private fun removeAppOverlay() {
+        islandView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+                // no-op
+            }
+        }
+        islandView = null
+        islandParams = null
     }
 
     private fun observeWeather() {
