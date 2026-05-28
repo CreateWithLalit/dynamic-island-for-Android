@@ -1,6 +1,10 @@
 ﻿package com.miui.dynamicisland.data.repository
 
+import android.Manifest
 import android.content.Context
+import android.location.Location
+import android.location.LocationManager
+import androidx.core.content.ContextCompat
 import com.miui.dynamicisland.BuildConfig
 import com.miui.dynamicisland.data.api.WeatherApi
 import com.miui.dynamicisland.data.api.WeatherResponse
@@ -17,7 +21,7 @@ class WeatherRepository(private val context: Context) {
     companion object {
         private const val TAG = "WeatherRepository"
         private const val BASE_URL = "https://api.openweathermap.org/"
-        private const val DEFAULT_CITY = "Mumbai"
+        private const val DEFAULT_CITY = "Noida"
     }
 
     private val _cachedWeather = MutableStateFlow<WeatherInfo?>(null)
@@ -58,7 +62,7 @@ class WeatherRepository(private val context: Context) {
                 return
             }
 
-            val response = api.getWeather(city = DEFAULT_CITY, apiKey = apiKey)
+            val response = getWeatherResponse(apiKey)
             val weatherInfo = mapResponseToWeatherInfo(response)
             _cachedWeather.value = weatherInfo
 
@@ -66,6 +70,34 @@ class WeatherRepository(private val context: Context) {
         } catch (e: Exception) {
             IslandLogger.e(TAG, "Failed to refresh weather: ${e.message}", e)
         }
+    }
+
+    private suspend fun getWeatherResponse(apiKey: String): WeatherResponse {
+        val location = getLastKnownNetworkLocation()
+        return if (location != null) {
+            api.getWeatherByCoords(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                apiKey = apiKey
+            )
+        } else {
+            api.getWeather(city = DEFAULT_CITY, apiKey = apiKey)
+        }
+    }
+
+    private fun getLastKnownNetworkLocation(): Location? {
+        val hasCoarsePermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!hasCoarsePermission) return null
+
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        return runCatching {
+            manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                ?: manager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        }.getOrNull()
     }
 
     private fun mapResponseToWeatherInfo(response: WeatherResponse): WeatherInfo {

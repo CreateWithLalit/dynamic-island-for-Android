@@ -41,6 +41,9 @@ private val Context.islandSizeDataStore: DataStore<Preferences> by preferencesDa
     name = "island_dimensions"
 )
 
+private val EXPANDED_WIDTH_SCALE_KEY = floatPreferencesKey("expanded_width_scale")
+private val EXPANDED_HEIGHT_SCALE_KEY = floatPreferencesKey("expanded_height_scale")
+
 open class IslandSizeManager(
     context: Context
 ) {
@@ -70,6 +73,12 @@ open class IslandSizeManager(
     val dimensionsFlow: StateFlow<Map<KClass<out IslandState>, IslandDimensions>> =
         _currentDimensions.asStateFlow()
 
+    private val _expandedWidthScale = MutableStateFlow(1f)
+    val expandedWidthScaleFlow: StateFlow<Float> = _expandedWidthScale.asStateFlow()
+
+    private val _expandedHeightScale = MutableStateFlow(1f)
+    val expandedHeightScaleFlow: StateFlow<Float> = _expandedHeightScale.asStateFlow()
+
     private val _overrides = MutableStateFlow<Map<KClass<out IslandState>, IslandDimensionsOverride>>(emptyMap())
     val overridesFlow: StateFlow<Map<KClass<out IslandState>, IslandDimensionsOverride>> =
         _overrides.asStateFlow()
@@ -96,6 +105,9 @@ open class IslandSizeManager(
                             cornerRadius = if (radius != null && radius > 0f) radius.dp else default.cornerRadius
                         )
                     }
+
+                    _expandedWidthScale.value = preferences[EXPANDED_WIDTH_SCALE_KEY]?.takeIf { it > 0f } ?: 1f
+                    _expandedHeightScale.value = preferences[EXPANDED_HEIGHT_SCALE_KEY]?.takeIf { it > 0f } ?: 1f
 
                     // Keep raw overrides (nullable) so runtime can apply them on top of calibration/base logic.
                     _overrides.value = defaultDimensions.keys.associateWith { kClass ->
@@ -158,6 +170,26 @@ open class IslandSizeManager(
             }
             if (cornerRadius != null) {
                 if (cornerRadius > 0f) preferences[radiusKey] = cornerRadius else preferences.remove(radiusKey)
+            }
+        }
+    }
+
+    suspend fun updateExpandedWidthScale(scale: Float) {
+        appContext.islandSizeDataStore.edit { preferences ->
+            if (scale > 0f && scale != 1f) {
+                preferences[EXPANDED_WIDTH_SCALE_KEY] = scale
+            } else {
+                preferences.remove(EXPANDED_WIDTH_SCALE_KEY)
+            }
+        }
+    }
+
+    suspend fun updateExpandedHeightScale(scale: Float) {
+        appContext.islandSizeDataStore.edit { preferences ->
+            if (scale > 0f && scale != 1f) {
+                preferences[EXPANDED_HEIGHT_SCALE_KEY] = scale
+            } else {
+                preferences.remove(EXPANDED_HEIGHT_SCALE_KEY)
             }
         }
     }

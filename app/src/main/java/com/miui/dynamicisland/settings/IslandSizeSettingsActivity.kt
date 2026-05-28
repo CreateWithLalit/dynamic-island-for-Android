@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.manager.getIslandSizeManager
@@ -70,6 +71,8 @@ private fun IslandSizeSettingsScreen(
     val context = LocalContext.current
     val sizeManager = remember { getIslandSizeManager(context) }
     val overrides by sizeManager.overridesFlow.collectAsState()
+    val expandedWidthScale by sizeManager.expandedWidthScaleFlow.collectAsState()
+    val expandedHeightScale by sizeManager.expandedHeightScaleFlow.collectAsState()
     val scope = rememberCoroutineScope()
 
     val items = remember {
@@ -132,6 +135,48 @@ private fun IslandSizeSettingsScreen(
         )
 
         Spacer(Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E))
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Expanded size", color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Scale expanded cards width and height separately.",
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                ScaleSlider(
+                    label = "Expanded width scale",
+                    value = expandedWidthScale,
+                    range = 0.7f..4.0f,
+                    onValueChange = { newValue ->
+                        scope.launch { sizeManager.updateExpandedWidthScale(newValue) }
+                    }
+                )
+                ScaleSlider(
+                    label = "Expanded height scale",
+                    value = expandedHeightScale,
+                    range = 0.7f..1.6f,
+                    onValueChange = { newValue ->
+                        scope.launch { sizeManager.updateExpandedHeightScale(newValue) }
+                    }
+                )
+                Text(
+                    text = "Tip: 1.0x keeps the original size.",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
 
         items.forEach { item ->
             val currentOverride = overrides[item.stateClass]
@@ -263,3 +308,31 @@ private fun SizeSlider(
     }
 }
 
+@Composable
+private fun ScaleSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    Column(Modifier.padding(vertical = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, color = Color.White, fontSize = 13.sp)
+            Text("${"%.2f".format(value)}x", color = Color.Gray, fontSize = 13.sp)
+        }
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+            )
+        )
+    }
+}

@@ -19,6 +19,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,7 +27,6 @@ import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.ui.states.IslandState
 import java.util.Locale
+import java.text.DateFormat
+import java.util.Date
 
 private val ExpandedSurface  = Color(0xFF1C1C1E)
 private val ExpandedDivider  = Color(0xFF2C2C2E)
@@ -102,54 +104,13 @@ fun IslandExpanded(
 
 @Composable
 private fun ExpandedMedia(state: IslandState.Media) {
-    val progress = if (state.duration > 0L)
-        (state.position.toFloat() / state.duration.toFloat()).coerceIn(0f, 1f)
-    else 0f
-
     ExpandedCard {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(ExpandedDivider),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.MusicNote, "Music", Modifier.size(24.dp), TextSecondary)
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    state.title.ifBlank { "Unknown Track" },
-                    color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    state.artist.ifBlank { "Unknown Artist" },
-                    color = TextSecondary, fontSize = 13.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(ExpandedDivider),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (state.isPlaying) "⏸" else "▶", color = TextPrimary, fontSize = 14.sp)
-            }
-        }
-        if (state.duration > 0L) {
-            Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(
-                progress     = { progress },
-                modifier     = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
-                color        = TextPrimary,
-                trackColor   = ExpandedDivider
-            )
-        }
+        MediaWidget(
+            state = state,
+            slot = MediaSlot.LEFT,
+            isExpanded = true,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -180,42 +141,35 @@ private fun ExpandedCall(state: IslandState.Call) {
                 )
             }
         }
-        if (state.isIncoming && !state.isOngoing) {
+        if (state.isIncoming || state.isOngoing) {
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = ExpandedDivider, thickness = 0.5.dp)
             Spacer(Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                Box(
-                    Modifier.size(52.dp).clip(RoundedCornerShape(26.dp))
-                        .background(Color(0xFFFF3B30)),
-                    contentAlignment = Alignment.Center
-                ) { Text("✕", color = TextPrimary, fontSize = 20.sp) }
-                Box(
-                    Modifier.size(52.dp).clip(RoundedCornerShape(26.dp))
-                        .background(AccentGreen),
-                    contentAlignment = Alignment.Center
-                ) { Text("✓", color = TextPrimary, fontSize = 20.sp) }
-            }
+            CallWidget(state = state, slot = CallSlot.BOTTOM)
         }
     }
 }
 
 @Composable
 private fun ExpandedNotification(state: IslandState.Notification) {
+    val timeText = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(state.postTime))
+
     ExpandedCard {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Box(
-                Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(ExpandedDivider),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Notifications, "Notification", Modifier.size(20.dp), TextSecondary)
-            }
+            IosAppIcon(
+                packageName = state.packageName,
+                appName = state.appName.ifBlank { "App" },
+                size = 36.dp
+            )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(state.appName, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Text("now", color = TextSecondary, fontSize = 12.sp)
+                    Text(timeText, color = TextSecondary, fontSize = 12.sp)
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(
@@ -225,9 +179,47 @@ private fun ExpandedNotification(state: IslandState.Notification) {
                 )
                 if (state.content.isNotBlank()) {
                     Spacer(Modifier.height(2.dp))
-                    Text(state.content, color = TextSecondary, fontSize = 13.sp,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        state.content,
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(ExpandedDivider)
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("MARK AS READ", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0xFFFF3B30))
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("DELETE", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0xFF0A84FF))
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("REPLY", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -235,64 +227,111 @@ private fun ExpandedNotification(state: IslandState.Notification) {
 
 @Composable
 private fun ExpandedCharging(state: IslandState.Charging) {
+    val methodLabel = when (state.chargeMethod) {
+        IslandState.Charging.ChargeMethod.WIRELESS -> "Wireless"
+        IslandState.Charging.ChargeMethod.WIRED -> "Wired"
+        IslandState.Charging.ChargeMethod.NONE -> "Battery"
+        IslandState.Charging.ChargeMethod.UNKNOWN -> "Battery"
+    }
+
     ExpandedCard {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Battery", fontSize = 16.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Battery", fontSize = 16.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(AccentOrange.copy(alpha = 0.2f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(methodLabel, color = AccentOrange, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
                 Text(
                     if (state.isCharging) "Charging" else "Unplugged",
                     color = if (state.isCharging) AccentGreen else TextSecondary,
-                    fontSize = 14.sp, fontWeight = FontWeight.Medium
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
                 Spacer(Modifier.height(2.dp))
                 Text("${state.batteryLevel.coerceIn(0, 100)}%", color = TextSecondary, fontSize = 13.sp)
+                if (state.estimatedTimeMinutes > 0) {
+                    Spacer(Modifier.height(2.dp))
+                    Text("Full in ${state.estimatedTimeMinutes} min", color = TextSecondary, fontSize = 12.sp)
+                }
             }
-            Text(
-                when (state.chargeMethod) {
-                    IslandState.Charging.ChargeMethod.WIRELESS -> "Wireless"
-                    IslandState.Charging.ChargeMethod.WIRED    -> "Wired"
-                    else                                       -> "Battery"
-                },
-                color = AccentOrange, fontSize = 12.sp, fontWeight = FontWeight.Medium
+            IosBatteryIcon(
+                level = state.batteryLevel.coerceIn(0, 100),
+                isCharging = state.isCharging,
+                modifier = Modifier.size(width = 48.dp, height = 24.dp)
             )
         }
-        Spacer(Modifier.height(12.dp))
-        LinearProgressIndicator(
-            progress   = { state.batteryLevel.coerceIn(0, 100) / 100f },
-            modifier   = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-            color      = if (state.batteryLevel > 20) AccentGreen else Color(0xFFFF3B30),
-            trackColor = ExpandedDivider
-        )
     }
 }
 
 @Composable
 private fun ExpandedBluetooth(state: IslandState.Bluetooth) {
+    val deviceName = state.deviceName.ifBlank { "Bluetooth" }
+    val isEarbuds = deviceName.lowercase(Locale.US).let { name ->
+        name.contains("airpod") || name.contains("earbud") || name.contains("buds") || name.contains("pods")
+    }
+    val statusColor = if (state.isConnected) AccentGreen else TextSecondary
+
     ExpandedCard {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Bluetooth, "Bluetooth", Modifier.size(24.dp), TextPrimary)
+            if (isEarbuds) {
+                AirPodsIcon(modifier = Modifier.size(24.dp), tint = TextPrimary)
+            } else {
+                Icon(
+                    if (state.isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
+                    "Bluetooth",
+                    Modifier.size(24.dp),
+                    TextPrimary
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    state.deviceName.ifBlank { "Bluetooth" },
+                    deviceName,
                     color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    if (state.isConnected) "Connected" else "Disconnected",
-                    color = if (state.isConnected) AccentGreen else TextSecondary,
-                    fontSize = 13.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(statusColor)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (state.isConnected) "Connected" else "Disconnected",
+                        color = statusColor,
+                        fontSize = 13.sp
+                    )
+                }
             }
             state.batteryLevel?.let { raw ->
                 val level = raw.coerceIn(0, 100)
-                Text(
-                    "$level%",
-                    color = if (level > 20) AccentGreen else Color(0xFFFF3B30),
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium
-                )
+                val batteryColor = if (level > 20) AccentGreen else Color(0xFFFF3B30)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "$level%",
+                        color = batteryColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    IosBatteryIcon(
+                        level = level,
+                        isCharging = false,
+                        modifier = Modifier.size(width = 24.dp, height = 12.dp),
+                        color = batteryColor
+                    )
+                }
             }
         }
     }
@@ -314,10 +353,10 @@ private fun ExpandedWeather(state: IslandState.Weather) {
                 )
             }
             Icon(
-                imageVector    = getWeatherIconFromCode(state.iconCode),
+                imageVector = getWeatherIconFromCode(state.iconCode),
                 contentDescription = state.condition,
-                modifier       = Modifier.size(48.dp),
-                tint           = Color(0xFFFFD60A)
+                modifier = Modifier.size(48.dp),
+                tint = Color(0xFFFFD60A)
             )
         }
     }

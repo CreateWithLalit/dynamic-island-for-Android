@@ -153,7 +153,12 @@ private fun MediaExpandedWidget(
     val bar2 by infiniteTransition.animateFloat(1f, 0.45f, infiniteRepeatable(tween(420, easing = FastOutSlowInEasing), RepeatMode.Reverse))
     val bar3 by infiniteTransition.animateFloat(0.55f, 0.9f, infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse))
 
-    Column(modifier = modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(
                 Modifier.size(64.dp)
@@ -195,7 +200,11 @@ private fun MediaExpandedWidget(
                 }
             }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
                 Text(
                     state.title,
                     color = MediaTextPrimary,

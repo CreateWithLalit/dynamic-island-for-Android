@@ -221,6 +221,11 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            params.width = if (it.isExpanded) {
+                WindowManager.LayoutParams.MATCH_PARENT
+            } else {
+                WindowManager.LayoutParams.WRAP_CONTENT
+            }
             applyLockScreenFlags(params)
         }
 

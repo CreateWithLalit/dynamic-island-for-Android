@@ -347,17 +347,36 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
     private fun startOverlayObservers() {
         overlayJob?.cancel()
         overlayJob = serviceScope.launch {
-            calibrationManager.calibration.collectLatest { cal ->
-                val params = overlayParams ?: return@collectLatest
-                val density = resources.displayMetrics.density
-                val baseSafeY = WindowUtils.getStatusBarHeight(this@IslandAccessibilityService)
-                params.x = (cal.offsetX * density).toInt()
-                params.y = baseSafeY + (cal.offsetY * density).toInt()
-                overlayView?.let { view ->
-                    try {
-                        windowManager.updateViewLayout(view, params)
-                    } catch (_: Exception) {
-                        // no-op
+            launch {
+                calibrationManager.calibration.collectLatest { cal ->
+                    val params = overlayParams ?: return@collectLatest
+                    val density = resources.displayMetrics.density
+                    val baseSafeY = WindowUtils.getStatusBarHeight(this@IslandAccessibilityService)
+                    params.x = (cal.offsetX * density).toInt()
+                    params.y = baseSafeY + (cal.offsetY * density).toInt()
+                    overlayView?.let { view ->
+                        try {
+                            windowManager.updateViewLayout(view, params)
+                        } catch (_: Exception) {
+                            // no-op
+                        }
+                    }
+                }
+            }
+            launch {
+                stateManager.currentState.collectLatest { state ->
+                    val params = overlayParams ?: return@collectLatest
+                    params.width = if (state.isExpanded) {
+                        WindowManager.LayoutParams.MATCH_PARENT
+                    } else {
+                        WindowManager.LayoutParams.WRAP_CONTENT
+                    }
+                    overlayView?.let { view ->
+                        try {
+                            windowManager.updateViewLayout(view, params)
+                        } catch (_: Exception) {
+                            // no-op
+                        }
                     }
                 }
             }
