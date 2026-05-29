@@ -140,6 +140,11 @@ class CallRepository(private val context: Context) {
 
     // Interactive Actions
     fun acceptCall() {
+        // Send command to External Dialer first
+        val intent = Intent("com.miui.dynamicisland.ACTION_ANSWER")
+        intent.`package` = "com.goodwy.dialer" // Update this if your dialer package is different
+        context.sendBroadcast(intent)
+
         try {
             // Method 0: If we are the default dialer
             val activeCall = com.miui.dynamicisland.service.IslandCallService.getActiveCall()
@@ -171,6 +176,11 @@ class CallRepository(private val context: Context) {
     }
 
     fun declineCall() {
+        // Send command to External Dialer first
+        val intent = Intent("com.miui.dynamicisland.ACTION_DECLINE")
+        intent.`package` = "com.goodwy.dialer"
+        context.sendBroadcast(intent)
+
         try {
             // Method 0: If we are the default dialer
             val activeCall = com.miui.dynamicisland.service.IslandCallService.getActiveCall()

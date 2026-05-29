@@ -455,17 +455,20 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
     }
 
     private fun observeCalls() {
+        // We now rely on ExternalCallReceiver for calls from your new Dialer app.
+        // This local observer is only a fallback and should be disabled if using 
+        // the external dialer to avoid double pop-ups.
         val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager
+        if (telecomManager?.defaultDialerPackage != packageName) {
+             IslandLogger.d(TAG, "External dialer detected, skipping local call observation", null)
+             return
+        }
+
         val callRepo = (application as? DynamicIslandApplication)?.callRepository ?: return
         lifecycleScope.launch {
             combine(callRepo.callState, callRepo.ongoingDuration) { state, duration ->
                 state to duration
             }.collectLatest { (callState, duration) ->
-                // Skip if we are the default dialer (IslandCallService will handle it)
-                if (telecomManager?.defaultDialerPackage == packageName) {
-                    return@collectLatest
-                }
-
                 val current = stateManager.currentState.value
                 val wasExpanded = (current as? IslandState.Call)?.isExpanded ?: false
                 when (callState) {
