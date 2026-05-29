@@ -51,12 +51,12 @@ private val COMPACT_WIDTH     = 126.dp
 private val COMPACT_HEIGHT    = 37.dp
 private val COMPACT_RADIUS    = 18.5.dp
 
-private const val EXPANDED_WIDTH_DP = 320
+private const val EXPANDED_WIDTH_DP = 360
 private val MEDIA_EXP_WIDTH   = EXPANDED_WIDTH_DP.dp
-private val MEDIA_EXP_HEIGHT  = 160.dp
-private val MEDIA_EXP_RADIUS  = 42.dp
+private val MEDIA_EXP_HEIGHT  = 170.dp
+private val MEDIA_EXP_RADIUS  = 52.dp
 
-private val NOTIFY_EXP_HEIGHT = 100.dp
+private val NOTIFY_EXP_HEIGHT = 140.dp
 private val CHARGE_EXP_HEIGHT = 84.dp
 private val DEFAULT_EXP_WIDTH = EXPANDED_WIDTH_DP.dp
 private val DEFAULT_EXP_RADIUS = 30.dp
@@ -147,27 +147,40 @@ private fun IslandShell(
 
         // ── Weather (idle replacement) ────────────────────────────────────────
         is IslandState.Weather -> {
-            AnimatedCutoutSafeIslandShell(
-                targetWidth        = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(calibW),
-                targetHeight       = if (state.isExpanded) scaleExpandedHeight(CHARGE_EXP_HEIGHT) else compactHeight(calibH),
-                targetCornerRadius = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR),
-                leftContent = {
-                    WeatherWidget(
-                        state      = state,
-                        isExpanded = state.isExpanded,
-                        slot       = WeatherSlot.LEFT
-                    )
-                },
-                rightContent = {
-                    if (!state.isExpanded) {
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = scaleExpandedWidth(DEFAULT_EXP_WIDTH),
+                    targetHeight       = scaleExpandedHeight(CHARGE_EXP_HEIGHT),
+                    targetCornerRadius = scaleExpandedRadius(DEFAULT_EXP_RADIUS),
+                    centerContent = {
+                        WeatherWidget(
+                            state      = state,
+                            isExpanded = true,
+                            slot       = WeatherSlot.LEFT
+                        )
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = compactWidth(calibW),
+                    targetHeight       = compactHeight(calibH),
+                    targetCornerRadius = compactRadius(calibR),
+                    leftContent = {
+                        WeatherWidget(
+                            state      = state,
+                            isExpanded = false,
+                            slot       = WeatherSlot.LEFT
+                        )
+                    },
+                    rightContent = {
                         WeatherWidget(
                             state      = state,
                             isExpanded = false,
                             slot       = WeatherSlot.RIGHT
                         )
                     }
-                }
-            )
+                )
+            }
         }
 
         // ── Media ─────────────────────────────────────────────────────────────
@@ -187,7 +200,7 @@ private fun IslandShell(
                     targetHeight       = targetH,
                     targetCornerRadius = targetR,
                     centerDeadZoneWidth = 0.dp,
-                    leftContent = {
+                    centerContent = {
                         MediaWidget(
                             state         = state,
                             slot          = MediaSlot.LEFT,
@@ -213,23 +226,36 @@ private fun IslandShell(
 
         // ── Charging ──────────────────────────────────────────────────────────
         is IslandState.Charging -> {
-            AnimatedCutoutSafeIslandShell(
-                targetWidth        = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(calibW),
-                targetHeight       = if (state.isExpanded) scaleExpandedHeight(CHARGE_EXP_HEIGHT) else compactHeight(calibH),
-                targetCornerRadius = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR),
-                leftContent = {
-                    ChargingWidget(
-                        state      = state,
-                        slot       = ChargingSlot.LEFT,
-                        isExpanded = state.isExpanded
-                    )
-                },
-                rightContent = {
-                    if (!state.isExpanded) {
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = scaleExpandedWidth(DEFAULT_EXP_WIDTH),
+                    targetHeight       = scaleExpandedHeight(CHARGE_EXP_HEIGHT),
+                    targetCornerRadius = scaleExpandedRadius(DEFAULT_EXP_RADIUS),
+                    centerContent = {
+                        ChargingWidget(
+                            state      = state,
+                            slot       = ChargingSlot.LEFT,
+                            isExpanded = true
+                        )
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = compactWidth(calibW),
+                    targetHeight       = compactHeight(calibH),
+                    targetCornerRadius = compactRadius(calibR),
+                    leftContent = {
+                        ChargingWidget(
+                            state      = state,
+                            slot       = ChargingSlot.LEFT,
+                            isExpanded = false
+                        )
+                    },
+                    rightContent = {
                         ChargingWidget(state = state, slot = ChargingSlot.RIGHT, isExpanded = false)
                     }
-                }
-            )
+                )
+            }
         }
 
         // ── Notification ──────────────────────────────────────────────────────
@@ -248,7 +274,7 @@ private fun IslandShell(
                     targetHeight            = targetH,
                     targetCornerRadius      = targetR,
                     targetBottomPanelHeight = scaleExpandedHeight(NOTIFY_EXP_HEIGHT),
-                    leftContent = {
+                    centerContent = {
                         NotificationWidget(state = state, slot = NotificationSlot.LEFT)
                     },
                     bottomContent = {
@@ -288,7 +314,7 @@ private fun IslandShell(
             )
         }
 
-        // ── Volume ────────────────────────────────────────────────────────────
+        // ── Volume ───────────────────────────────────────────────��────────────
         is IslandState.Volume -> {
             AnimatedCutoutSafeIslandShell(
                 targetWidth        = compactWidth(calibW),
@@ -304,6 +330,7 @@ private fun IslandShell(
                 targetWidth        = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(calibW),
                 targetHeight       = if (state.isExpanded) scaleExpandedHeight(120.dp) else compactHeight(calibH),
                 targetCornerRadius = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR),
+                targetBottomPanelHeight = if (state.isExpanded) scaleExpandedHeight(72.dp) else 0.dp,
                 leftContent  = { CallWidget(state = state, slot = CallSlot.LEFT) },
                 rightContent = { CallWidget(state = state, slot = CallSlot.RIGHT) },
                 bottomContent = {

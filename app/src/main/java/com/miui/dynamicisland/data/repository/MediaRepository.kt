@@ -53,6 +53,9 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    private val positionHandler = Handler(Looper.getMainLooper())
+    private var positionTick: Runnable? = null
+
     // ── Called by IslandNotificationListener when sessions change ──────────────
     fun updateFromController(controller: MediaController?) {
         if (activeController != controller) {
@@ -63,6 +66,7 @@ class MediaRepository(private val context: Context) {
 
         if (controller == null) {
             _realTimeMediaInfo.value = null
+            stopPositionUpdates()
             return
         }
 
@@ -98,6 +102,12 @@ class MediaRepository(private val context: Context) {
             packageName  = controller.packageName,
             isActive     = true
         )
+
+        if (isPlaying) {
+            startPositionUpdates()
+        } else {
+            stopPositionUpdates()
+        }
     }
 
     // ── Direct update (e.g. from polling / WorkManager) ───────────────────────
@@ -155,5 +165,28 @@ class MediaRepository(private val context: Context) {
         } else {
             IslandLogger.w(TAG, "seekTo() called but no active MediaController", null)
         }
+    }
+
+    private fun startPositionUpdates() {
+        if (positionTick != null) return
+        positionTick = Runnable {
+            val controller = activeController
+            if (controller != null) {
+                updateFromController(controller)
+                if (controller.playbackState?.state == PlaybackState.STATE_PLAYING) {
+                    positionHandler.postDelayed(positionTick!!, 1000L)
+                } else {
+                    stopPositionUpdates()
+                }
+            } else {
+                stopPositionUpdates()
+            }
+        }
+        positionHandler.post(positionTick!!)
+    }
+
+    private fun stopPositionUpdates() {
+        positionTick?.let { positionHandler.removeCallbacks(it) }
+        positionTick = null
     }
 }

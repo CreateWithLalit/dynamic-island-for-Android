@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
@@ -84,11 +84,21 @@ private fun CallLeftSlot(
         ),
         label = "dot_pulse"
     )
+    val statusLabel = when {
+        state.isOngoing -> "Ongoing Call"
+        state.isIncoming -> "Incoming Call"
+        else -> "Call"
+    }
+    val statusColor = when {
+        state.isOngoing -> CallGreen
+        state.isIncoming -> CallOrange
+        else -> CallTextDim
+    }
 
     Row(
         modifier = modifier.padding(start = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
             modifier = Modifier
@@ -116,14 +126,27 @@ private fun CallLeftSlot(
             iconSize = 16.dp,
             tint = CallTextPrimary
         )
-        Text(
-            text = state.callerName.ifBlank { "Unknown" },
-            color = CallTextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
+        ) {
+            Text(
+                text = state.callerName.ifBlank { "Unknown" },
+                color = CallTextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = statusLabel,
+                color = statusColor,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -134,7 +157,7 @@ private fun CallRightSlot(
 ) {
     val label = when {
         state.isOngoing -> formatDuration(state.duration)
-        state.isIncoming -> "Calling"
+        state.isIncoming -> "Ringing"
         else -> ""
     }
     val labelColor = when {
@@ -146,7 +169,7 @@ private fun CallRightSlot(
         Text(
             text = label,
             color = labelColor,
-            fontSize = 14.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = modifier.padding(end = 8.dp)
         )
@@ -160,41 +183,57 @@ private fun CallBottomSlot(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.wrapContentWidth().padding(bottom = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (state.isIncoming) {
             // Decline Button
             IconButton(
                 onClick = { onCallAction(CallAction.Decline) },
-                modifier = Modifier.size(50.dp).clip(CircleShape).background(CallRed)
+                modifier = Modifier.size(52.dp).clip(CircleShape).background(CallRed)
             ) {
-                Icon(Icons.Default.CallEnd, "Decline", tint = Color.White)
+                IosDrawableOrGlyphIcon(
+                    drawableNameCandidates = listOf("ios_call_end", "ic_ios_call_end", "ios_decline"),
+                    fallbackIcon = Icons.Default.CallEnd,
+                    contentDescription = "Decline",
+                    containerSize = 26.dp,
+                    iconSize = 18.dp,
+                    backgroundColor = Color.Transparent,
+                    tint = Color.White
+                )
             }
             // Accept Button
             IconButton(
                 onClick = { onCallAction(CallAction.Accept) },
-                modifier = Modifier.size(50.dp).clip(CircleShape).background(CallGreen)
+                modifier = Modifier.size(52.dp).clip(CircleShape).background(CallGreen)
             ) {
-                Icon(Icons.Default.Call, "Accept", tint = Color.White)
+                IosDrawableOrGlyphIcon(
+                    drawableNameCandidates = listOf("ios_call", "ic_ios_call", "ios_accept"),
+                    fallbackIcon = Icons.Default.Call,
+                    contentDescription = "Accept",
+                    containerSize = 26.dp,
+                    iconSize = 18.dp,
+                    backgroundColor = Color.Transparent,
+                    tint = Color.White
+                )
             }
         } else if (state.isOngoing) {
             var isMuted by remember { mutableStateOf(false) }
             // Mute Button
             IconButton(
-                onClick = { 
+                onClick = {
                     isMuted = !isMuted
-                    onCallAction(CallAction.Mute) 
+                    onCallAction(CallAction.Mute)
                 },
-                modifier = Modifier.size(48.dp).clip(CircleShape).background(if (isMuted) Color.White.copy(alpha = 0.2f) else CallControlBg)
+                modifier = Modifier.size(50.dp).clip(CircleShape).background(if (isMuted) Color.White.copy(alpha = 0.2f) else CallControlBg)
             ) {
                 Icon(if (isMuted) Icons.Default.MicOff else Icons.Default.Mic, "Mute", tint = if (isMuted) CallRed else Color.White)
             }
             // End Call Button
             IconButton(
                 onClick = { onCallAction(CallAction.End) },
-                modifier = Modifier.size(50.dp).clip(CircleShape).background(CallRed)
+                modifier = Modifier.size(52.dp).clip(CircleShape).background(CallRed)
             ) {
                 Icon(Icons.Default.CallEnd, "End Call", tint = Color.White)
             }

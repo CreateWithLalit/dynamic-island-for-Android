@@ -418,18 +418,23 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
 
     private fun observeNotifications() {
         lifecycleScope.launch {
-            NotificationRepository.notifications.collectLatest { notification ->
-                if (notification.isNotEmpty) {
+            NotificationRepository.notifications.collectLatest { queueState ->
+                val current = queueState.current
+                if (current != null && queueState.isNotEmpty) {
                     stateManager.pushState(
                         IslandState.Notification(
-                            appName     = notification.appName,
-                            title       = notification.title,
-                            content     = notification.content,
-                            packageName = notification.packageName,
-                            appIcon     = notification.appIcon,
-                            postTime    = notification.timestamp
+                            appName     = current.appName,
+                            title       = current.title,
+                            content     = current.content,
+                            packageName = current.packageName,
+                            appIcon     = current.appIcon,
+                            postTime    = current.timestamp,
+                            queueCount  = queueState.items.size,
+                            queueIndex  = queueState.safeIndex
                         )
                     )
+                } else {
+                    stateManager.removeState(IslandState.Notification::class.java)
                 }
             }
         }
@@ -441,6 +446,8 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             combine(callRepo.callState, callRepo.ongoingDuration) { state, duration ->
                 state to duration
             }.collectLatest { (callState, duration) ->
+                val current = stateManager.currentState.value
+                val wasExpanded = (current as? IslandState.Call)?.isExpanded ?: false
                 when (callState) {
                     is com.miui.dynamicisland.data.model.CallState.Ringing -> {
                         stateManager.pushState(
@@ -448,7 +455,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 callerName = callState.phoneNumber?.takeIf { it.isNotBlank() } ?: "Incoming Call",
                                 isIncoming = true,
                                 isOngoing = false,
-                                isExpanded = false
+                                isExpanded = wasExpanded
                             )
                         )
                     }
@@ -459,7 +466,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 isIncoming = false,
                                 isOngoing = true,
                                 duration = duration,
-                                isExpanded = false
+                                isExpanded = wasExpanded
                             )
                         )
                     }

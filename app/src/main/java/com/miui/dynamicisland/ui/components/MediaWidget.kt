@@ -156,13 +156,13 @@ private fun MediaExpandedWidget(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = 20.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(
-                Modifier.size(64.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                Modifier.size(72.dp)
+                    .clip(CircleShape)
                     .background(Color(0xFF1C1C1E)),
                 contentAlignment = Alignment.Center
             ) {
@@ -185,30 +185,30 @@ private fun MediaExpandedWidget(
                         IosAppIcon(
                             packageName = state.packageName,
                             appName = state.packageName.substringAfterLast('.').ifBlank { "Music" },
-                            size = 56.dp,
+                            size = 64.dp,
                             contentPadding = 4.dp
                         )
                     } else {
                         IosGlyphIcon(
                             icon = Icons.Default.MusicNote,
                             contentDescription = "Music",
-                            containerSize = 56.dp,
-                            iconSize = 28.dp,
+                            containerSize = 64.dp,
+                            iconSize = 30.dp,
                             tint = MediaTextSecondary
                         )
                     }
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(14.dp))
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp)
+                    .padding(horizontal = 8.dp)
             ) {
                 Text(
                     state.title,
                     color = MediaTextPrimary,
-                    fontSize = 18.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -216,24 +216,24 @@ private fun MediaExpandedWidget(
                 Text(
                     state.artist,
                     color = metaGrey,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.width(3.dp).height(18.dp * bar1).clip(RoundedCornerShape(2.dp)).background(waveformColor))
-                Box(Modifier.width(3.dp).height(18.dp * bar2).clip(RoundedCornerShape(2.dp)).background(waveformColor))
-                Box(Modifier.width(3.dp).height(18.dp * bar3).clip(RoundedCornerShape(2.dp)).background(waveformColor))
+                Box(Modifier.width(3.dp).height(20.dp * bar1).clip(RoundedCornerShape(2.dp)).background(waveformColor))
+                Box(Modifier.width(3.dp).height(20.dp * bar2).clip(RoundedCornerShape(2.dp)).background(waveformColor))
+                Box(Modifier.width(3.dp).height(20.dp * bar3).clip(RoundedCornerShape(2.dp)).background(waveformColor))
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(16.dp))
 
         Slider(
             value = progress,
             onValueChange = { onMediaAction(MediaAction.Seek(it)) },
-            modifier = Modifier.fillMaxWidth().height(1.dp),
+            modifier = Modifier.fillMaxWidth().height(6.dp),
             colors = SliderDefaults.colors(
                 thumbColor = Color.Transparent,
                 activeTrackColor = Color.White,
@@ -241,33 +241,52 @@ private fun MediaExpandedWidget(
             )
         )
         Row(
-            Modifier.fillMaxWidth().padding(top = 6.dp),
+            Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(state.formattedPosition, color = metaGrey, fontSize = 10.sp)
-            Text(state.formattedRemainingTime, color = metaGrey, fontSize = 10.sp)
+            Text(state.formattedPosition, color = metaGrey, fontSize = 11.sp)
+            Text(state.formattedRemainingTime, color = metaGrey, fontSize = 11.sp)
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(16.dp))
 
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val durationMs = state.duration.coerceAtLeast(0L)
+            fun seekBy(deltaMs: Long) {
+                if (durationMs <= 0L) return
+                val newPosition = (state.position + deltaMs).coerceIn(0L, durationMs)
+                onMediaAction(MediaAction.Seek(newPosition.toFloat() / durationMs.toFloat()))
+            }
+            IconButton(onClick = { seekBy(-10_000L) }) {
+                Icon(Icons.Default.Replay10, null, Modifier.size(28.dp), Color.White)
+            }
             IconButton(onClick = { onMediaAction(MediaAction.Previous) }) {
-                Icon(Icons.Default.SkipPrevious, null, Modifier.size(28.dp), Color.White)
+                Icon(Icons.Default.SkipPrevious, null, Modifier.size(30.dp), Color.White)
             }
             IconButton(onClick = { onMediaAction(MediaAction.PlayPause) }) {
-                Icon(
-                    if (state.isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                    null,
-                    Modifier.size(44.dp),
-                    Color.White
+                IosDrawableOrGlyphIcon(
+                    drawableNameCandidates = if (state.isPlaying) {
+                        listOf("ios_pause", "ic_ios_pause", "ios_play_pause")
+                    } else {
+                        listOf("ios_play", "ic_ios_play", "ios_play_filled")
+                    },
+                    fallbackIcon = if (state.isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                    contentDescription = if (state.isPlaying) "Pause" else "Play",
+                    containerSize = 50.dp,
+                    iconSize = 30.dp,
+                    backgroundColor = Color.Transparent,
+                    tint = Color.White
                 )
             }
             IconButton(onClick = { onMediaAction(MediaAction.Next) }) {
-                Icon(Icons.Default.SkipNext, null, Modifier.size(28.dp), Color.White)
+                Icon(Icons.Default.SkipNext, null, Modifier.size(30.dp), Color.White)
+            }
+            IconButton(onClick = { seekBy(10_000L) }) {
+                Icon(Icons.Default.Forward10, null, Modifier.size(28.dp), Color.White)
             }
         }
     }

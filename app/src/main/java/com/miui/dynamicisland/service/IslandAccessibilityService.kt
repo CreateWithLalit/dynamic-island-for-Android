@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.media.session.MediaController
@@ -427,5 +428,14 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
             }
         }
         screenReceiver = null
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        overlayView?.let { view ->
+            val isPortrait = newConfig.orientation == Configuration.ORIENTATION_PORTRAIT
+            view.visibility = if (isPortrait) android.view.View.VISIBLE else android.view.View.GONE
+        }
     }
 }

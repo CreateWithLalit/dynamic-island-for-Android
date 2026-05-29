@@ -57,6 +57,8 @@ sealed class IslandState(
         val packageName: String,
         val appIcon: Drawable? = null,
         val postTime: Long = System.currentTimeMillis(),
+        val queueCount: Int = 1,
+        val queueIndex: Int = 0,
         override val isExpanded: Boolean = false
     ) : IslandState(20, 4000L, true, isExpanded)
 

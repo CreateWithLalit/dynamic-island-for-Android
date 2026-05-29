@@ -38,6 +38,7 @@ fun CutoutSafeIslandShell(
     horizontalPadding: Dp = DEFAULT_HORIZONTAL_PADDING,
     leftContent: @Composable () -> Unit = {},
     rightContent: @Composable () -> Unit = {},
+    centerContent: (@Composable () -> Unit)? = null,
     bottomContent: (@Composable () -> Unit)? = null,
     bottomPanelHeight: Dp = 0.dp,
     bottomPanelWidth: Dp = width,
@@ -57,17 +58,28 @@ fun CutoutSafeIslandShell(
                 .background(islandColor),
             contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    leftContent()
+            if (centerContent != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = horizontalPadding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    centerContent()
                 }
-                Spacer(modifier = Modifier.width(centerDeadZoneWidth).height(height))
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                    rightContent()
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        leftContent()
+                    }
+                    Spacer(modifier = Modifier.width(centerDeadZoneWidth).height(height))
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                        rightContent()
+                    }
                 }
             }
         }
@@ -102,35 +114,37 @@ fun AnimatedCutoutSafeIslandShell(
     bottomPanelSpacing: Dp = 4.dp,
     leftContent: @Composable () -> Unit = {},
     rightContent: @Composable () -> Unit = {},
+    centerContent: (@Composable () -> Unit)? = null,
     bottomContent: (@Composable () -> Unit)? = null,
 ) {
     // Explicit spring<Dp> to fix inference error
-    val springSpec = spring<Dp>(
-        dampingRatio = 0.7f,
+    val sizeSpring = spring<Dp>(
+        dampingRatio = Spring.DampingRatioLowBouncy,
         stiffness = Spring.StiffnessLow
+    )
+    val radiusSpring = spring<Dp>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMedium
     )
 
     val animatedWidth by animateDpAsState(
         targetValue = targetWidth,
-        animationSpec = springSpec,
+        animationSpec = sizeSpring,
         label = "shell_width"
     )
     val animatedHeight by animateDpAsState(
         targetValue = targetHeight,
-        animationSpec = springSpec,
+        animationSpec = sizeSpring,
         label = "shell_height"
     )
     val animatedCornerRadius by animateDpAsState(
         targetValue = targetCornerRadius,
-        animationSpec = springSpec,
+        animationSpec = radiusSpring,
         label = "shell_radius"
     )
     val animatedBottomHeight by animateDpAsState(
         targetValue = targetBottomPanelHeight,
-        animationSpec = spring<Dp>(
-            dampingRatio = 0.7f,
-            stiffness = Spring.StiffnessLow
-        ),
+        animationSpec = sizeSpring,
         label = "bottom_height"
     )
 
@@ -143,6 +157,7 @@ fun AnimatedCutoutSafeIslandShell(
         horizontalPadding = horizontalPadding,
         leftContent = leftContent,
         rightContent = rightContent,
+        centerContent = centerContent,
         bottomContent = bottomContent,
         bottomPanelHeight = animatedBottomHeight,
         bottomPanelWidth = bottomPanelWidth,

@@ -28,10 +28,62 @@ data class NotificationData(
 }
 
 object NotificationRepository {
-    private val _notifications = MutableStateFlow(NotificationData.EMPTY)
-    val notifications: StateFlow<NotificationData> = _notifications.asStateFlow()
+    private const val MAX_QUEUE_SIZE = 8
+
+    data class NotificationQueueState(
+        val items: List<NotificationData> = emptyList(),
+        val index: Int = 0
+    ) {
+        val isNotEmpty: Boolean get() = items.isNotEmpty()
+        val safeIndex: Int get() = index.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        val current: NotificationData?
+            get() = items.getOrNull(safeIndex)
+    }
+
+    private val _notifications = MutableStateFlow(NotificationQueueState())
+    val notifications: StateFlow<NotificationQueueState> = _notifications.asStateFlow()
 
     fun postNotification(data: NotificationData) {
-        _notifications.value = data
+        if (!data.isNotEmpty) {
+            clearAll()
+            return
+        }
+        val current = _notifications.value
+        val updated = listOf(data) + current.items
+            .filterNot { it.packageName == data.packageName && it.timestamp == data.timestamp }
+        _notifications.value = current.copy(
+            items = updated.take(MAX_QUEUE_SIZE),
+            index = 0
+        )
+    }
+
+    fun clearAll() {
+        _notifications.value = NotificationQueueState()
+    }
+
+    fun deleteCurrent() {
+        val current = _notifications.value
+        if (current.items.isEmpty()) return
+        val newItems = current.items.toMutableList().also { it.removeAt(current.safeIndex) }
+        val newIndex = current.safeIndex.coerceAtMost((newItems.size - 1).coerceAtLeast(0))
+        _notifications.value = current.copy(items = newItems, index = newIndex)
+    }
+
+    fun markCurrentRead() {
+        deleteCurrent()
+    }
+
+    fun navigateNext() {
+        val current = _notifications.value
+        if (current.items.size <= 1) return
+        val newIndex = (current.safeIndex + 1) % current.items.size
+        _notifications.value = current.copy(index = newIndex)
+    }
+
+    fun navigatePrevious() {
+        val current = _notifications.value
+        if (current.items.size <= 1) return
+        val newIndex = (current.safeIndex - 1 + current.items.size) % current.items.size
+        _notifications.value = current.copy(index = newIndex)
     }
 }
