@@ -87,11 +87,15 @@ fun DynamicIsland(
     Box(
         modifier = modifier
             .wrapContentSize()
-            .pointerInput(state) {
-                detectTapGestures(
-                    onTap = { onTap() }
-                )
-            },
+            .then(
+                // For notifications, we let the internal widget handle clicks to avoid swipe conflicts.
+                // For everything else (Music, Weather, Battery), we keep the root tap-to-collapse logic.
+                if (state !is IslandState.Notification || !state.isExpanded) {
+                    Modifier.pointerInput(state) {
+                        detectTapGestures(onTap = { onTap() })
+                    }
+                } else Modifier
+            ),
         contentAlignment = Alignment.TopCenter
     ) {
         IslandShell(
@@ -260,12 +264,13 @@ private fun IslandShell(
 
         // ── Notification ──────────────────────────────────────────────────────
         is IslandState.Notification -> {
-            val notifCompactW = compactWidth(215.dp)
+            val hasMultiple = state.queueCount > 1
+            val notifCompactW = if (hasMultiple) compactWidth(180.dp) else compactWidth(126.dp)
             val notifCompactH = compactHeight(calibH)
             val notifCompactR = compactRadius(calibR)
 
             val targetW = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else notifCompactW
-            val targetH = if (state.isExpanded) scaleExpandedHeight(notifCompactH) else notifCompactH // Maintain base height
+            val targetH = if (state.isExpanded) scaleExpandedHeight(190.dp) else notifCompactH
             val targetR = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else notifCompactR
 
             if (state.isExpanded) {
@@ -273,11 +278,8 @@ private fun IslandShell(
                     targetWidth             = targetW,
                     targetHeight            = targetH,
                     targetCornerRadius      = targetR,
-                    targetBottomPanelHeight = scaleExpandedHeight(NOTIFY_EXP_HEIGHT),
+                    targetBottomPanelHeight = 0.dp,
                     centerContent = {
-                        NotificationWidget(state = state, slot = NotificationSlot.LEFT)
-                    },
-                    bottomContent = {
                         NotificationWidget(state = state, isExpanded = true)
                     }
                 )
@@ -287,7 +289,7 @@ private fun IslandShell(
                     targetHeight       = targetH,
                     targetCornerRadius = targetR,
                     leftContent  = { NotificationWidget(state = state, slot = NotificationSlot.LEFT) },
-                    rightContent = { /* empty right for notifications */ }
+                    rightContent = { /* Empty right - icons are grouped on left */ }
                 )
             }
         }
@@ -326,19 +328,29 @@ private fun IslandShell(
 
         // ── Call ──────────────────────────────────────────────────────────────
         is IslandState.Call -> {
-            AnimatedCutoutSafeIslandShell(
-                targetWidth        = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(calibW),
-                targetHeight       = if (state.isExpanded) scaleExpandedHeight(120.dp) else compactHeight(calibH),
-                targetCornerRadius = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR),
-                targetBottomPanelHeight = if (state.isExpanded) scaleExpandedHeight(72.dp) else 0.dp,
-                leftContent  = { CallWidget(state = state, slot = CallSlot.LEFT) },
-                rightContent = { CallWidget(state = state, slot = CallSlot.RIGHT) },
-                bottomContent = {
-                    if (state.isExpanded) {
-                        CallWidget(state = state, slot = CallSlot.BOTTOM, onCallAction = onCallAction)
+            val targetW = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(calibW)
+            val targetH = if (state.isExpanded) scaleExpandedHeight(82.dp) else compactHeight(calibH)
+            val targetR = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR)
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth             = targetW,
+                    targetHeight            = targetH,
+                    targetCornerRadius      = targetR,
+                    targetBottomPanelHeight = 0.dp,
+                    centerContent = {
+                        CallWidget(state = state, isExpanded = true, onCallAction = onCallAction)
                     }
-                }
-            )
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent  = { CallWidget(state = state, slot = CallSlot.LEFT) },
+                    rightContent = { CallWidget(state = state, slot = CallSlot.RIGHT) }
+                )
+            }
         }
     }
 }

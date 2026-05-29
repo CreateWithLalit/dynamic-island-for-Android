@@ -229,6 +229,9 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
             packageName = packageName,
             appIcon = appIconDrawable,
             timestamp = System.currentTimeMillis(),
+            contentIntent = null,
+            actions = null,
+            notificationKey = "${packageName}_${System.currentTimeMillis()}",
             isNotEmpty = true
         )
 

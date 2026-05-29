@@ -98,8 +98,26 @@ fun PermissionDiagnosticScreen(
     var hasPhoneState by remember { mutableStateOf(PermissionUtils.hasPhoneStatePermission(context)) }
     var hasAnswerCalls by remember { mutableStateOf(PermissionUtils.hasAnswerCallsPermission(context)) }
     var hasBluetoothConnect by remember { mutableStateOf(PermissionUtils.hasBluetoothConnectPermission(context)) }
+    var hasContacts by remember { mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
+    var isDefaultDialer by remember { mutableStateOf(false) }
     var useAccessibilityOverlay by remember { mutableStateOf(OverlaySettings.isAccessibilityOverlayEnabled(context)) }
     var allowLockScreenOverlay by remember { mutableStateOf(OverlaySettings.isLockScreenOverlayEnabled(context)) }
+
+    val roleManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        context.getSystemService(android.app.role.RoleManager::class.java)
+    } else null
+
+    val telecomManager = remember { context.getSystemService(android.content.Context.TELECOM_SERVICE) as? android.telecom.TelecomManager }
+
+    val dialerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            isDefaultDialer = roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_DIALER) == true
+        } else {
+            isDefaultDialer = telecomManager?.defaultDialerPackage == context.packageName
+        }
+    }
 
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -119,6 +137,20 @@ fun PermissionDiagnosticScreen(
         hasBluetoothConnect = granted
     }
 
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasContacts = granted
+    }
+
+    val callPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    val callLogPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     // Auto refresh on resume would be better, but for now a simple check
     LaunchedEffect(Unit) {
         while(true) {
@@ -128,6 +160,12 @@ fun PermissionDiagnosticScreen(
             hasPhoneState = PermissionUtils.hasPhoneStatePermission(context)
             hasAnswerCalls = PermissionUtils.hasAnswerCallsPermission(context)
             hasBluetoothConnect = PermissionUtils.hasBluetoothConnectPermission(context)
+            hasContacts = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            isDefaultDialer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_DIALER) == true
+            } else {
+                telecomManager?.defaultDialerPackage == context.packageName
+            }
             kotlinx.coroutines.delay(2000)
         }
     }
@@ -201,6 +239,37 @@ fun PermissionDiagnosticScreen(
             isGranted = hasAnswerCalls,
             icon = Icons.Default.Call,
             onClick = { answerCallsPermissionLauncher.launch(Manifest.permission.ANSWER_PHONE_CALLS) }
+        )
+
+        PermissionCard(
+            title = "Contacts (Caller ID)",
+            description = "Needed to show real names and photos of callers.",
+            isGranted = hasContacts,
+            icon = Icons.Default.Contacts,
+            onClick = { contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS) }
+        )
+
+        PermissionCard(
+            title = "Default Dialer",
+            description = "Set as default phone app for full island integration.",
+            isGranted = isDefaultDialer,
+            icon = Icons.Default.Dialpad,
+            onClick = {
+                // Request CALL_PHONE permission first
+                if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val intent = roleManager?.createRequestRoleIntent(android.app.role.RoleManager.ROLE_DIALER)
+                    if (intent != null) dialerLauncher.launch(intent)
+                } else {
+                    val intent = Intent(android.telecom.TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
+                        putExtra(android.telecom.TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, context.packageName)
+                    }
+                    dialerLauncher.launch(intent)
+                }
+            }
         )
 
         PermissionCard(

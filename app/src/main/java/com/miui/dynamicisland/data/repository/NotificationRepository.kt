@@ -1,5 +1,7 @@
 package com.miui.dynamicisland.data.repository
 
+import android.app.Notification
+import android.app.PendingIntent
 import android.graphics.drawable.Drawable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +14,10 @@ data class NotificationData(
     val packageName: String,
     val appIcon: Drawable?,
     val timestamp: Long,
+    val contentIntent: PendingIntent? = null,
+    val actions: Array<Notification.Action>? = null,
+    val notificationKey: String = "",
+    val isMessage: Boolean = false,
     val isNotEmpty: Boolean = false
 ) {
     companion object {
@@ -22,6 +28,10 @@ data class NotificationData(
             packageName = "",
             appIcon = null,
             timestamp = 0L,
+            contentIntent = null,
+            actions = null,
+            notificationKey = "",
+            isMessage = false,
             isNotEmpty = false
         )
     }
@@ -59,6 +69,15 @@ object NotificationRepository {
 
     fun clearAll() {
         _notifications.value = NotificationQueueState()
+    }
+
+    fun removeByKey(key: String) {
+        val current = _notifications.value
+        val newItems = current.items.filterNot { it.notificationKey == key }
+        if (newItems.size != current.items.size) {
+            val newIndex = current.index.coerceAtMost((newItems.size - 1).coerceAtLeast(0))
+            _notifications.value = current.copy(items = newItems, index = newIndex)
+        }
     }
 
     fun deleteCurrent() {

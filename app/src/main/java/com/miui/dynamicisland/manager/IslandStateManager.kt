@@ -72,8 +72,8 @@ class IslandStateManager private constructor() {
         val expandedState = current.withExpanded(true)
         pushState(expandedState)
 
-        // Auto-collapse for non-media states
-        if (current !is IslandState.Media && current !is IslandState.Call) {
+        // Auto-collapse for non-media states (Exclude Notifications as requested)
+        if (current !is IslandState.Media && current !is IslandState.Call && current !is IslandState.Notification) {
             scope.launch {
                 delay(ms)
                 val collapsedState = current.withExpanded(false)

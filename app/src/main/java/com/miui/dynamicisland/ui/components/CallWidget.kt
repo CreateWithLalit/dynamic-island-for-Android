@@ -1,27 +1,17 @@
 // File: app/src/main/java/com/miui/dynamicisland/ui/components/CallWidget.kt
-// Purpose: Call status – left icon + caller name, right duration/label
-
 package com.miui.dynamicisland.ui.components
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
@@ -30,16 +20,14 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,22 +39,29 @@ import java.util.concurrent.TimeUnit
 
 private val CallGreen = Color(0xFF30D158)
 private val CallRed = Color(0xFFFF3B30)
-private val CallOrange = Color(0xFFFF9F0A)
 private val CallControlBg = Color(0xFF2C2C2E)
 private val CallTextPrimary = Color.White
 private val CallTextDim = Color.White.copy(alpha = 0.6f)
+private val CallOrange = Color(0xFFFF9F0A)
 
 @Composable
 fun CallWidget(
     state: IslandState.Call,
-    slot: CallSlot,
+    slot: CallSlot? = null,
+    isExpanded: Boolean = false,
     onCallAction: (CallAction) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    if (isExpanded) {
+        CallExpandedContent(state, onCallAction, modifier)
+        return
+    }
+
     when (slot) {
         CallSlot.LEFT -> CallLeftSlot(state, modifier)
         CallSlot.RIGHT -> CallRightSlot(state, modifier)
         CallSlot.BOTTOM -> CallBottomSlot(state, onCallAction, modifier)
+        null -> {}
     }
 }
 
@@ -84,16 +79,6 @@ private fun CallLeftSlot(
         ),
         label = "dot_pulse"
     )
-    val statusLabel = when {
-        state.isOngoing -> "Ongoing Call"
-        state.isIncoming -> "Incoming Call"
-        else -> "Call"
-    }
-    val statusColor = when {
-        state.isOngoing -> CallGreen
-        state.isIncoming -> CallOrange
-        else -> CallTextDim
-    }
 
     Row(
         modifier = modifier.padding(start = 10.dp),
@@ -105,48 +90,22 @@ private fun CallLeftSlot(
                 .size(10.dp)
                 .scale(if (state.isOngoing) dotScale else 1f)
                 .clip(CircleShape)
-                .background(
-                    when {
-                        state.isOngoing -> CallGreen
-                        state.isIncoming -> CallOrange
-                        else -> CallTextDim
-                    }
-                )
+                .background(if (state.isOngoing) CallGreen else CallOrange)
         )
-        IosDrawableOrGlyphIcon(
-            drawableNameCandidates = listOf(
-                "ios_call",
-                "ic_ios_call",
-                "ios_phone",
-                "ic_ios_phone"
-            ),
-            fallbackIcon = Icons.Default.Call,
+        Icon(
+            imageVector = Icons.Default.Call,
             contentDescription = "Call",
-            containerSize = 24.dp,
-            iconSize = 16.dp,
-            tint = CallTextPrimary
+            tint = if (state.isOngoing) CallGreen else CallOrange,
+            modifier = Modifier.size(18.dp)
         )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 8.dp)
-        ) {
-            Text(
-                text = state.callerName.ifBlank { "Unknown" },
-                color = CallTextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = statusLabel,
-                color = statusColor,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Text(
+            text = state.callerName.ifBlank { "Call" },
+            color = CallTextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -155,24 +114,138 @@ private fun CallRightSlot(
     state: IslandState.Call,
     modifier: Modifier = Modifier
 ) {
-    val label = when {
-        state.isOngoing -> formatDuration(state.duration)
-        state.isIncoming -> "Ringing"
-        else -> ""
-    }
-    val labelColor = when {
-        state.isOngoing -> CallGreen
-        state.isIncoming -> CallOrange
-        else -> CallTextDim
-    }
-    if (label.isNotEmpty()) {
+    if (state.isOngoing) {
         Text(
-            text = label,
-            color = labelColor,
-            fontSize = 12.sp,
+            text = formatDuration(state.duration),
+            color = CallGreen,
+            fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = modifier.padding(end = 8.dp)
+            modifier = modifier.padding(end = 12.dp)
         )
+    } else {
+        Icon(
+            imageVector = Icons.Default.Call,
+            contentDescription = "Incoming",
+            tint = CallOrange,
+            modifier = modifier.size(18.dp).padding(end = 10.dp)
+        )
+    }
+}
+
+@Composable
+private fun CallExpandedContent(
+    state: IslandState.Call,
+    onCallAction: (CallAction) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Avatar
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(Color.DarkGray)
+        ) {
+            if (state.callerPhoto != null) {
+                Image(
+                    bitmap = state.callerPhoto.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    Icons.Default.Call,
+                    null,
+                    Modifier.align(Alignment.Center).size(24.dp),
+                    Color.White
+                )
+            }
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        // Name & Subtext
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = state.callerName.ifBlank { "Unknown" },
+                color = CallTextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = state.callerSubtext,
+                color = CallTextDim,
+                fontSize = 12.sp,
+                maxLines = 1
+            )
+            if (state.isOngoing) {
+                Text(
+                    text = formatDuration(state.duration),
+                    color = CallGreen,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        // Action Buttons
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (state.isIncoming) {
+                // Decline (Red)
+                CallActionButton(
+                    icon = Icons.Default.CallEnd,
+                    color = CallRed,
+                    onClick = { onCallAction(CallAction.Decline) }
+                )
+                // Accept (Green)
+                CallActionButton(
+                    icon = Icons.Default.Call,
+                    color = CallGreen,
+                    onClick = { onCallAction(CallAction.Accept) }
+                )
+            } else if (state.isOngoing) {
+                // End Call (Red)
+                CallActionButton(
+                    icon = Icons.Default.CallEnd,
+                    color = CallRed,
+                    onClick = { onCallAction(CallAction.End) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(color)
+            .padding(8.dp)
+            .scale(if (icon == Icons.Default.CallEnd) 1f else 1f), // adjustments if needed
+        contentAlignment = Alignment.Center
+    ) {
+        IconButton(onClick = onClick, modifier = Modifier.size(42.dp)) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
@@ -182,68 +255,11 @@ private fun CallBottomSlot(
     onCallAction: (CallAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (state.isIncoming) {
-            // Decline Button
-            IconButton(
-                onClick = { onCallAction(CallAction.Decline) },
-                modifier = Modifier.size(52.dp).clip(CircleShape).background(CallRed)
-            ) {
-                IosDrawableOrGlyphIcon(
-                    drawableNameCandidates = listOf("ios_call_end", "ic_ios_call_end", "ios_decline"),
-                    fallbackIcon = Icons.Default.CallEnd,
-                    contentDescription = "Decline",
-                    containerSize = 26.dp,
-                    iconSize = 18.dp,
-                    backgroundColor = Color.Transparent,
-                    tint = Color.White
-                )
-            }
-            // Accept Button
-            IconButton(
-                onClick = { onCallAction(CallAction.Accept) },
-                modifier = Modifier.size(52.dp).clip(CircleShape).background(CallGreen)
-            ) {
-                IosDrawableOrGlyphIcon(
-                    drawableNameCandidates = listOf("ios_call", "ic_ios_call", "ios_accept"),
-                    fallbackIcon = Icons.Default.Call,
-                    contentDescription = "Accept",
-                    containerSize = 26.dp,
-                    iconSize = 18.dp,
-                    backgroundColor = Color.Transparent,
-                    tint = Color.White
-                )
-            }
-        } else if (state.isOngoing) {
-            var isMuted by remember { mutableStateOf(false) }
-            // Mute Button
-            IconButton(
-                onClick = {
-                    isMuted = !isMuted
-                    onCallAction(CallAction.Mute)
-                },
-                modifier = Modifier.size(50.dp).clip(CircleShape).background(if (isMuted) Color.White.copy(alpha = 0.2f) else CallControlBg)
-            ) {
-                Icon(if (isMuted) Icons.Default.MicOff else Icons.Default.Mic, "Mute", tint = if (isMuted) CallRed else Color.White)
-            }
-            // End Call Button
-            IconButton(
-                onClick = { onCallAction(CallAction.End) },
-                modifier = Modifier.size(52.dp).clip(CircleShape).background(CallRed)
-            ) {
-                Icon(Icons.Default.CallEnd, "End Call", tint = Color.White)
-            }
-        }
-    }
+    // Legacy support or extra actions
 }
 
 private fun formatDuration(durationMs: Long): String {
-    val safeDuration = durationMs.coerceAtLeast(0L)
-    val minutes = TimeUnit.MILLISECONDS.toMinutes(safeDuration)
-    val seconds = TimeUnit.MILLISECONDS.toSeconds(safeDuration) % 60
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(durationMs)
+    val seconds = TimeUnit.MILLISECONDS.toSeconds(durationMs) % 60
     return String.format(Locale.US, "%02d:%02d", minutes, seconds)
 }

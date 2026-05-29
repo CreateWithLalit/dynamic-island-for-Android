@@ -24,24 +24,17 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.miui.dynamicisland.util.IconUtils
-import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import coil.compose.AsyncImage
-import kotlin.math.roundToInt
+import coil.request.ImageRequest
 
 private val DefaultIosIconBg = Color(0xFF2C2C2E)
 
@@ -96,13 +89,6 @@ fun findFirstDrawableResId(context: Context, candidates: List<String>): Int {
 
 /**
  * Tries to find an iOS-style replacement icon in `res/drawable`.
- * Suggested naming conventions (any one works):
- *  - ios_<sanitized_package>
- *  - ic_ios_<sanitized_package>
- *  - ios_<last_segment>
- *  - ic_ios_<last_segment>
- *
- * Example: com.spotify.music -> ios_com_spotify_music OR ios_spotify
  */
 @SuppressLint("DiscouragedApi")
 fun findIosIconResId(context: Context, packageName: String): Int {
@@ -133,15 +119,10 @@ private fun loadAppIconFromPackageManager(context: Context, packageName: String)
     return runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()
 }
 
-private fun drawableToBitmap(drawable: Drawable?, sizePx: Int): ImageBitmap? {
-    val bmp = runCatching { drawable?.toBitmap(width = sizePx, height = sizePx) }.getOrNull()
-    return bmp?.asImageBitmap()
-}
-
 /**
  * iOS-style app icon:
  *  - If an iOS replacement drawable exists -> uses painterResource.
- *  - Else falls back to the runtime app icon (notification icon / PackageManager icon).
+ *  - Else falls back to the runtime app icon (using AsyncImage/Coil for robustness).
  *  - Else shows the app initial.
  */
 @Composable
@@ -157,7 +138,7 @@ fun IosAppIcon(
     val context = LocalContext.current
     val resId = remember(packageName) { findIosIconResId(context, packageName) }
 
-    val resolvedDrawable = remember(packageName, fallbackDrawable) {
+    val iconData = remember(packageName, fallbackDrawable) {
         fallbackDrawable ?: loadAppIconFromPackageManager(context, packageName)
     }
 
@@ -173,8 +154,11 @@ fun IosAppIcon(
     ) {
         when {
             resId != 0 -> {
-                Image(
-                    painter = painterResource(id = resId),
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(resId)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = appName,
                     modifier = Modifier
                         .fillMaxSize()
@@ -184,32 +168,19 @@ fun IosAppIcon(
                 )
             }
 
-            resolvedDrawable != null -> {
-                val density = LocalDensity.current
-                val sizePx = remember(size) { with(density) { size.toPx().toInt() } }
-                val imageBitmap = remember(resolvedDrawable, sizePx) {
-                    IconUtils.drawableToImageBitmap(resolvedDrawable, sizePx)
-                }
-
-                if (imageBitmap != null) {
-                    Image(
-                        bitmap = imageBitmap,
-                        contentDescription = appName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(contentPadding)
-                            .clip(RoundedCornerShape(radius - 1.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    // Fallback to text if bitmap conversion fails
-                    Text(
-                        text = appName.firstOrNull()?.uppercase() ?: "?",
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = (size.value * 0.45f).sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+            iconData != null -> {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(iconData)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = appName,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding)
+                        .clip(RoundedCornerShape(radius - 1.dp)),
+                    contentScale = ContentScale.Crop
+                )
             }
 
             else -> {
@@ -278,12 +249,14 @@ fun IosDrawableOrGlyphIcon(
         contentAlignment = Alignment.Center
     ) {
         if (resId != 0) {
-            val p: Painter = painterResource(id = resId)
-            Icon(
-                painter = p,
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(resId)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = contentDescription,
                 modifier = Modifier.size(iconSize),
-                tint = tint
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(tint)
             )
         } else {
             Icon(
@@ -295,4 +268,3 @@ fun IosDrawableOrGlyphIcon(
         }
     }
 }
-

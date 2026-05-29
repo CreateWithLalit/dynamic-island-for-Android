@@ -214,13 +214,20 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
 
         // 2. Flags Update (Touch handling)
         state?.let {
-            // ALWAYS keep FLAG_NOT_FOCUSABLE to allow fingerprint and back gestures.
-            // FLAG_NOT_TOUCH_MODAL ensures clicks inside the island work while 
-            // clicks outside pass through to the system/apps.
-            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            val isReplying = (it as? IslandState.Notification)?.isReplying == true
+            
+            // If replying, we MUST remove FLAG_NOT_FOCUSABLE to allow keyboard input.
+            // Otherwise, we keep it so gestures (like back) work normally.
+            val baseFlags = if (isReplying) {
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            } else {
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            }
+
+            params.flags = baseFlags or
                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
             params.width = if (it.isExpanded) {
                 WindowManager.LayoutParams.MATCH_PARENT
             } else {
@@ -421,6 +428,8 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             NotificationRepository.notifications.collectLatest { queueState ->
                 val current = queueState.current
                 if (current != null && queueState.isNotEmpty) {
+                    val currentState = stateManager.currentState.value
+                    val wasExpanded = (currentState as? IslandState.Notification)?.isExpanded ?: false
                     stateManager.pushState(
                         IslandState.Notification(
                             appName     = current.appName,
@@ -430,7 +439,12 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             appIcon     = current.appIcon,
                             postTime    = current.timestamp,
                             queueCount  = queueState.items.size,
-                            queueIndex  = queueState.safeIndex
+                            queueIndex  = queueState.safeIndex,
+                            contentIntent = current.contentIntent,
+                            actions = current.actions,
+                            notificationKey = current.notificationKey,
+                            isMessage = current.isMessage,
+                            isExpanded = wasExpanded
                         )
                     )
                 } else {
@@ -441,28 +455,43 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
     }
 
     private fun observeCalls() {
+        val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager
         val callRepo = (application as? DynamicIslandApplication)?.callRepository ?: return
         lifecycleScope.launch {
             combine(callRepo.callState, callRepo.ongoingDuration) { state, duration ->
                 state to duration
             }.collectLatest { (callState, duration) ->
+                // Skip if we are the default dialer (IslandCallService will handle it)
+                if (telecomManager?.defaultDialerPackage == packageName) {
+                    return@collectLatest
+                }
+
                 val current = stateManager.currentState.value
                 val wasExpanded = (current as? IslandState.Call)?.isExpanded ?: false
                 when (callState) {
                     is com.miui.dynamicisland.data.model.CallState.Ringing -> {
+                        val number = callState.phoneNumber
+                        val name = callRepo.getContactName(number)
+                        val photo = callRepo.getContactPhoto(number)
                         stateManager.pushState(
                             IslandState.Call(
-                                callerName = callState.phoneNumber?.takeIf { it.isNotBlank() } ?: "Incoming Call",
+                                callerName = name ?: number ?: "Unknown",
+                                callerSubtext = if (name != null) number ?: "" else "Incoming Call",
+                                callerPhoto = photo,
                                 isIncoming = true,
                                 isOngoing = false,
-                                isExpanded = wasExpanded
+                                isExpanded = true // Auto-expand on ringing
                             )
                         )
                     }
                     com.miui.dynamicisland.data.model.CallState.OffHook -> {
+                        val wasExpanded = (current as? IslandState.Call)?.isExpanded ?: true
+                        val prevCall = current as? IslandState.Call
                         stateManager.pushState(
                             IslandState.Call(
-                                callerName = "Ongoing Call",
+                                callerName = prevCall?.callerName ?: "Ongoing Call",
+                                callerSubtext = prevCall?.callerSubtext ?: "",
+                                callerPhoto = prevCall?.callerPhoto,
                                 isIncoming = false,
                                 isOngoing = true,
                                 duration = duration,

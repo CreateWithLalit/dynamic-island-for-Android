@@ -17,12 +17,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +47,26 @@ import com.miui.dynamicisland.ui.states.IslandState
 import java.util.Locale
 import java.text.DateFormat
 import java.util.Date
+import androidx.compose.ui.platform.LocalContext
+import com.miui.dynamicisland.data.repository.NotificationRepository
+import android.content.Intent
+import android.app.Notification
+import android.app.RemoteInput
+import android.os.Bundle
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import com.miui.dynamicisland.service.IslandNotificationListener
 
 private val ExpandedSurface  = Color(0xFF1C1C1E)
 private val ExpandedDivider  = Color(0xFF2C2C2E)
@@ -153,75 +176,299 @@ private fun ExpandedCall(state: IslandState.Call) {
 @Composable
 private fun ExpandedNotification(state: IslandState.Notification) {
     val timeText = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(state.postTime))
+    val canNavigate = state.queueCount > 1
+    val context = LocalContext.current
+    val appLabel = state.appName.ifBlank { "App" }.uppercase(Locale.getDefault())
+    val interactionSource = remember { MutableInteractionSource() }
+    val replyAction: android.app.Notification.Action? = remember(state.actions) {
+        state.actions?.firstOrNull { it.remoteInputs?.isNotEmpty() == true }
+    }
+    var showReplyDialog by remember { mutableStateOf(false) }
+    var replyText by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     ExpandedCard {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            IosAppIcon(
-                packageName = state.packageName,
-                appName = state.appName.ifBlank { "App" },
-                size = 36.dp
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(32.dp))
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null
                 ) {
-                    Text(state.appName, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Text(timeText, color = TextSecondary, fontSize = 12.sp)
+                    try {
+                        state.contentIntent?.send()
+                    } catch (_: Exception) {
+                        val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
+                        launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        if (launchIntent != null) {
+                            context.startActivity(launchIntent)
+                        }
+                    }
                 }
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    state.title.ifBlank { "Notification" },
-                    color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                if (state.content.isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                    ) {
+                        IosAppIcon(
+                            packageName = state.packageName,
+                            appName = state.appName.ifBlank { "App" },
+                            size = 16.dp,
+                            contentPadding = 0.dp,
+                            fallbackDrawable = state.appIcon
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        state.content,
-                        color = TextSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 2,
+                        text = "$appLabel • $timeText",
+                        color = Color(0xFFD1D5DB),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "CLEAR ALL",
+                        color = Color(0xFF6B7280),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            IslandNotificationListener.cancelAllPosted()
+                            NotificationRepository.clearAll()
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    if (canNavigate) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(Color(0xFF374151), CircleShape)
+                                .clickable { NotificationRepository.navigatePrevious() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                contentDescription = "Previous",
+                                tint = Color.LightGray,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(Color(0xFF374151), CircleShape)
+                                .clickable { NotificationRepository.navigateNext() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "Next",
+                                tint = Color.LightGray,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = state.title.ifBlank { "Notification" },
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                if (state.content.isNotBlank()) {
+                    Text(
+                        text = state.content,
+                        color = Color.LightGray,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Text(
+                        text = timeText,
+                        color = Color.LightGray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .background(Color(0xFF1F2937), RoundedCornerShape(50))
+                            .clickable {
+                                val readAction = state.actions?.firstOrNull {
+                                    it.title?.toString()?.contains("READ", ignoreCase = true) == true
+                                }
+                                try {
+                                    readAction?.actionIntent?.send()
+                                } catch (_: Exception) {
+                                    // no-op
+                                }
+                                IslandNotificationListener.cancelByKey(state.notificationKey)
+                                NotificationRepository.markCurrentRead()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text("MARK AS READ", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .background(Color(0xFF1F2937), RoundedCornerShape(50))
+                            .clickable {
+                                val deleteAction = state.actions?.firstOrNull {
+                                    val title = it.title?.toString() ?: ""
+                                    title.contains("DELETE", ignoreCase = true) ||
+                                        title.contains("DISMISS", ignoreCase = true) ||
+                                        title.contains("CLEAR", ignoreCase = true)
+                                }
+                                try {
+                                    deleteAction?.actionIntent?.send()
+                                } catch (_: Exception) {
+                                    // no-op
+                                }
+                                IslandNotificationListener.cancelByKey(state.notificationKey)
+                                NotificationRepository.deleteCurrent()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text("DELETE", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF1F2937), RoundedCornerShape(50))
+                            .clickable {
+                                if (replyAction != null) {
+                                    showReplyDialog = true
+                                } else {
+                                    val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
+                                    launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    if (launchIntent != null) {
+                                        context.startActivity(launchIntent)
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text("REPLY", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = "Mute",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clickable { }
+                )
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(50))
-                    .background(ExpandedDivider)
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("MARK AS READ", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+
+    if (showReplyDialog && replyAction != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showReplyDialog = false
+                replyText = ""
+            },
+            title = { Text("Reply") },
+            text = {
+                OutlinedTextField(
+                    value = replyText,
+                    onValueChange = { replyText = it },
+                    singleLine = true,
+                    placeholder = { Text("Type a reply") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(onSend = {
+                        if (replyText.isNotBlank()) {
+                            executeDirectReply(context, replyAction, replyText)
+                            replyText = ""
+                            showReplyDialog = false
+                            focusManager.clearFocus()
+                        }
+                    })
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (replyText.isNotBlank()) {
+                        executeDirectReply(context, replyAction, replyText)
+                        replyText = ""
+                        showReplyDialog = false
+                        focusManager.clearFocus()
+                    }
+                }) {
+                    Text("SEND")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showReplyDialog = false
+                    replyText = ""
+                }) {
+                    Text("CANCEL")
+                }
             }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0xFFFF3B30))
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("DELETE", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF0A84FF))
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("REPLY", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            }
+        )
+    }
+}
+
+private fun executeDirectReply(context: android.content.Context, action: Notification.Action, messageText: String) {
+    val remoteInputs = action.remoteInputs ?: return
+    val resultsBundle = Bundle().apply {
+        remoteInputs.forEach { input ->
+            putCharSequence(input.resultKey, messageText)
         }
+    }
+    val fillInIntent = Intent().apply {
+        RemoteInput.addResultsToIntent(remoteInputs, this, resultsBundle)
+    }
+    try {
+        action.actionIntent.send(context, 0, fillInIntent)
+    } catch (_: Exception) {
+        // no-op
     }
 }
 

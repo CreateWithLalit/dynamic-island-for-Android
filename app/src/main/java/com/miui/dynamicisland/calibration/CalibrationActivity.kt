@@ -1,18 +1,15 @@
 // File: app/src/main/java/com/miui/dynamicisland/calibration/CalibrationActivity.kt
-// Purpose: Allows user to drag island and adjust shape/dimensions in real time.
-// Hinglish: Is activity mein user island ko drag kar sakta hai aur resize kar sakta hai.
-//           Slider change hote hi overlay update ho jaata hai.
-//
-// FIX: Slider callbacks ab viewModel ke through CalibrationManager ko update karte hain,
-//      isliye overlay bhi turant change ho jaata hai.
-
 package com.miui.dynamicisland.calibration
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -21,6 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.miui.dynamicisland.manager.CalibrationManager
 import com.miui.dynamicisland.service.IslandForegroundService
 import com.miui.dynamicisland.ui.theme.DynamicIslandTheme
@@ -94,11 +94,26 @@ fun CalibrationScreen(
     onReset: () -> Unit,
     onStartService: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val calibration by viewModel.calibration.collectAsState()
     val density = LocalDensity.current.density
 
-    // Hardware cutout → preview dot (dp from top-center of preview)
+    // Contact Permission State
+    var hasContactPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasContactPermission = isGranted
+        if (isGranted) {
+            Toast.makeText(context, "Contacts Permission Granted!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val screenWidth = WindowUtils.getScreenWidth(context)
     val cutoutRect = WindowUtils.getDisplayCutoutRect(context)
     val statusBarHeight = WindowUtils.getStatusBarHeight(context)
@@ -117,14 +132,12 @@ fun CalibrationScreen(
         dotY = 8f
     }
 
-    // Local state mirrors calibration – updated on every slider/drag event
     var offsetX      by remember { mutableFloatStateOf(0f) }
     var offsetY      by remember { mutableFloatStateOf(0f) }
     var cornerRadius by remember { mutableFloatStateOf(0f) }
     var pillWidth    by remember { mutableFloatStateOf(0f) }
     var pillHeight   by remember { mutableFloatStateOf(0f) }
 
-    // Sync from DataStore on first load (and any external reset)
     LaunchedEffect(calibration) {
         offsetX      = calibration.offsetX
         offsetY      = calibration.offsetY
@@ -151,11 +164,45 @@ fun CalibrationScreen(
 
         Spacer(Modifier.height(32.dp))
 
+        // ── Contact Permission Toggle ──────────────────────────────────────────
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Contacts, null, tint = if (hasContactPermission) Color(0xFF30D158) else Color.Gray)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Caller ID Identification", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (hasContactPermission) "Permission Granted" else "Required to show caller names",
+                        color = if (hasContactPermission) Color(0xFF30D158) else Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
+                Switch(
+                    checked = hasContactPermission,
+                    onCheckedChange = { 
+                        if (it) {
+                            permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                        } else {
+                            Toast.makeText(context, "Please disable in System Settings", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF30D158))
+                )
+            }
+        }
+
         // ── Draggable Preview ─────────────────────────────────────────────────
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp)
+                .height(180.dp)
                 .background(Color(0xFF1C1C1E), RoundedCornerShape(16.dp))
                 .padding(8.dp)
         ) {
@@ -168,7 +215,6 @@ fun CalibrationScreen(
             val clampedDotY = dotY.dp.coerceIn(0.dp, maxDotY)
 
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                // Red dot = camera reference (positioned at hardware cutout)
                 Box(
                     Modifier
                         .size(dotSize)
@@ -177,7 +223,6 @@ fun CalibrationScreen(
                         .align(Alignment.TopCenter)
                 )
 
-                // Draggable island preview
                 Box(
                     modifier = Modifier
                         .offset(
@@ -194,7 +239,6 @@ fun CalibrationScreen(
                                 val newY = offsetY + (dragAmount.y / density)
                                 offsetX = newX.coerceIn(-maxX.value, maxX.value)
                                 offsetY = newY.coerceIn(0f, maxY.value)
-                                // Real-time update → propagates to CalibrationManager → overlay moves
                                 viewModel.updateOffsets(offsetX, offsetY)
                             }
                         }
@@ -205,10 +249,9 @@ fun CalibrationScreen(
         Spacer(Modifier.height(24.dp))
 
         // ── Sliders ───────────────────────────────────────────────────────────
-
         CalibrationSlider("Y Offset (Position)", offsetY, -50f..150f) { newVal ->
             offsetY = newVal
-            viewModel.updateOffsets(offsetX, offsetY)   // real-time overlay update
+            viewModel.updateOffsets(offsetX, offsetY)
         }
         CalibrationSlider("X Offset", offsetX, -150f..150f) { newVal ->
             offsetX = newVal
@@ -216,15 +259,15 @@ fun CalibrationScreen(
         }
         CalibrationSlider("Corner Radius", cornerRadius, 0f..40f) { newVal ->
             cornerRadius = newVal
-            viewModel.updateCornerRadius(newVal)         // real-time update
+            viewModel.updateCornerRadius(newVal)
         }
         CalibrationSlider("Pill Width", pillWidth, 80f..350f) { newVal ->
             pillWidth = newVal
-            viewModel.updatePillWidth(newVal)            // real-time update
+            viewModel.updatePillWidth(newVal)
         }
         CalibrationSlider("Pill Height", pillHeight, 20f..80f) { newVal ->
             pillHeight = newVal
-            viewModel.updatePillHeight(newVal)           // real-time update
+            viewModel.updatePillHeight(newVal)
         }
 
         Spacer(Modifier.height(32.dp))

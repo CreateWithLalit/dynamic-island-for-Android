@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
+import android.provider.ContactsContract
 import android.telecom.TelecomManager
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
@@ -33,6 +34,42 @@ class CallRepository(private val context: Context) {
     private var durationJob: Job? = null
     private val _ongoingDuration = MutableStateFlow(0L)
     val ongoingDuration: StateFlow<Long> = _ongoingDuration.asStateFlow()
+
+    fun getContactName(phoneNumber: String?): String? {
+        if (phoneNumber.isNullOrBlank()) return null
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val uri = android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(phoneNumber))
+        val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME)
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0)
+            }
+        }
+        return null
+    }
+
+    fun getContactPhoto(phoneNumber: String?): android.graphics.Bitmap? {
+        if (phoneNumber.isNullOrBlank()) return null
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val uri = android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(phoneNumber))
+        val projection = arrayOf(ContactsContract.PhoneLookup.PHOTO_URI)
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val photoUriString = cursor.getString(0)
+                if (photoUriString != null) {
+                    val photoUri = android.net.Uri.parse(photoUriString)
+                    context.contentResolver.openInputStream(photoUri)?.use { inputStream ->
+                        return android.graphics.BitmapFactory.decodeStream(inputStream)
+                    }
+                }
+            }
+        }
+        return null
+    }
 
     val callState: Flow<CallState> = callbackFlow {
         // 1. Permission Check
@@ -104,6 +141,14 @@ class CallRepository(private val context: Context) {
     // Interactive Actions
     fun acceptCall() {
         try {
+            // Method 0: If we are the default dialer
+            val activeCall = com.miui.dynamicisland.service.IslandCallService.getActiveCall()
+            if (activeCall != null) {
+                activeCall.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+                IslandLogger.d(TAG, "Call accepted via IslandCallService", null)
+                return
+            }
+
             // Method 1: Accessibility (best for MIUI)
             val done = IslandAccessibilityService.acceptCall()
             if (done) {
@@ -127,6 +172,14 @@ class CallRepository(private val context: Context) {
 
     fun declineCall() {
         try {
+            // Method 0: If we are the default dialer
+            val activeCall = com.miui.dynamicisland.service.IslandCallService.getActiveCall()
+            if (activeCall != null) {
+                activeCall.disconnect()
+                IslandLogger.d(TAG, "Call declined via IslandCallService", null)
+                return
+            }
+
             // Method 1: Accessibility
             val done = IslandAccessibilityService.declineCall()
             if (done) {
@@ -152,6 +205,17 @@ class CallRepository(private val context: Context) {
 
     fun endCall() {
         declineCall()
+    }
+
+    fun placeCall(number: String) {
+        try {
+            val uri = android.net.Uri.fromParts("tel", number, null)
+            telecomManager?.placeCall(uri, null)
+        } catch (e: Exception) {
+            val intent = Intent(Intent.ACTION_CALL, android.net.Uri.parse("tel:$number"))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
     }
 
     fun toggleMute() {

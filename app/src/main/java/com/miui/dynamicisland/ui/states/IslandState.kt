@@ -4,6 +4,8 @@ package com.miui.dynamicisland.ui.states
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.media.AudioManager
+import android.app.Notification
+import android.app.PendingIntent
 
 sealed class IslandState(
     val priority: Int,
@@ -59,8 +61,13 @@ sealed class IslandState(
         val postTime: Long = System.currentTimeMillis(),
         val queueCount: Int = 1,
         val queueIndex: Int = 0,
+        val contentIntent: PendingIntent? = null,
+        val actions: Array<android.app.Notification.Action>? = null,
+        val notificationKey: String = "",
+        val isMessage: Boolean = false,
+        val isReplying: Boolean = false,
         override val isExpanded: Boolean = false
-    ) : IslandState(20, 4000L, true, isExpanded)
+    ) : IslandState(20, Long.MAX_VALUE, true, isExpanded)
 
     data class Bluetooth(
         val isConnected: Boolean = false,
@@ -86,6 +93,8 @@ sealed class IslandState(
 
     data class Call(
         val callerName: String = "Unknown",
+        val callerSubtext: String = "iPhone",
+        val callerPhoto: Bitmap? = null,
         val isIncoming: Boolean = false,
         val isOngoing: Boolean = true,
         val duration: Long = 0L,
