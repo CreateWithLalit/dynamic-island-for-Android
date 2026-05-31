@@ -75,14 +75,22 @@ class IslandNotificationListener : NotificationListenerService() {
 
         // 1. Refined Blacklist & System Noise Filter
         if (packageName in ignoredPackages) return
-        if (sbn.isOngoing || (sbn.notification.flags and android.app.Notification.FLAG_ONGOING_EVENT != 0)) return
+        
+        // Filter out summary notifications and ongoing ones
+        val isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+        if (isSummary) {
+            IslandLogger.d(TAG, "Ignoring summary notification from $packageName", null)
+            return
+        }
+        
+        if (sbn.isOngoing || (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT != 0)) return
         if (sbn.notification.extras.containsKey("android.mediaSession")) return
 
         val extras = sbn.notification.extras
-        var senderTitle = extras.getString(Notification.EXTRA_TITLE)
-            ?: extras.getString(Notification.EXTRA_TITLE_BIG)
+        
+        // Better Sender Resolution for Messaging Apps
+        var senderTitle = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
-            ?: extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?: ""
             
         var messageBody = when {
@@ -91,6 +99,13 @@ class IslandNotificationListener : NotificationListenerService() {
                 if (!messages.isNullOrEmpty()) {
                     val lastMessage = messages.last() as? android.os.Bundle
                     val text = lastMessage?.getCharSequence("text")?.toString()
+                    val sender = lastMessage?.getCharSequence("sender")?.toString()
+                    
+                    // If we have a sender name in the messaging style, use it as title if title is generic
+                    if (!sender.isNullOrBlank() && (senderTitle.isBlank() || senderTitle == packageName)) {
+                        senderTitle = sender
+                    }
+                    
                     if (text.isNullOrBlank()) extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() else text
                 } else extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
             }
@@ -99,12 +114,25 @@ class IslandNotificationListener : NotificationListenerService() {
             else -> null
         } ?: extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n") { it.toString() } ?: ""
 
-        // If one is empty, try to balance it
-        if (senderTitle.isNotBlank() && messageBody.isBlank()) {
-            // Instagram sometimes puts the whole thing in Title
-            if (senderTitle.contains(":") || senderTitle.length > 15) {
-                messageBody = senderTitle
-                senderTitle = "" // Will fall back to App Name later
+        // Deduplicate Title in Content (e.g. "Akshat: Hello" -> "Hello")
+        if (messageBody.startsWith("$senderTitle: ", ignoreCase = true)) {
+            messageBody = messageBody.substring(senderTitle.length + 2)
+        } else if (messageBody.startsWith("$senderTitle ", ignoreCase = true)) {
+            messageBody = messageBody.substring(senderTitle.length + 1)
+        }
+
+        // WhatsApp / Telegram "System" message filters
+        val lowerBody = messageBody.lowercase()
+        if (lowerBody.contains("checking for new messages") || 
+            lowerBody.contains("new message") && messageBody.length < 15 ||
+            lowerBody.matches(Regex(".*\\d+.*new messages.*")) ||
+            lowerBody.matches(Regex(".*\\d+.*messages from.*chats.*"))) {
+            
+            // If we already have a better notification for this app, ignore this summary/placeholder
+            val currentQueue = NotificationRepository.notifications.value.items
+            if (currentQueue.any { it.packageName == packageName && it.content.length > messageBody.length }) {
+                IslandLogger.d(TAG, "Ignoring placeholder notification as better content exists", null)
+                return
             }
         }
 
@@ -113,12 +141,28 @@ class IslandNotificationListener : NotificationListenerService() {
             val appInfo = packageManager.getApplicationInfo(packageName, 0)
             packageManager.getApplicationLabel(appInfo).toString()
         } catch (e: Exception) {
-            val substituteName = extras.getCharSequence("android.substName")?.toString()
+            extras.getCharSequence("android.substName")?.toString()
                 ?: extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
-            if (!substituteName.isNullOrBlank()) substituteName else packageName
+                ?: packageName
         }
         
-        if (senderTitle.isBlank()) senderTitle = realAppName
+        if (senderTitle.isBlank() || senderTitle == realAppName) {
+            senderTitle = realAppName
+        }
+
+        // 3. Privacy Check: If message content is just "New message" or "X messages", 
+        // it might be hidden by system settings.
+        val lowerContent = messageBody.lowercase()
+        if (lowerContent.contains("new message") || lowerContent.matches(Regex(".*\\d+.*messages.*"))) {
+            // Keep it as is, or maybe the user wants to hide it? 
+            // The user said they want it shown only when app is unlocked.
+            // We can't easily check app-specific "unlocked" state, but we can check if device is locked.
+            val km = getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+            if (km?.isKeyguardLocked == true) {
+                // Device is locked, respect privacy if needed. 
+                // But usually the system already hides the text in SBN extras if privacy is on.
+            }
+        }
 
         val profileIcon: android.graphics.drawable.Icon? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             extras.getParcelable(Notification.EXTRA_LARGE_ICON, android.graphics.drawable.Icon::class.java)

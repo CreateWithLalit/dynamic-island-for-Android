@@ -98,6 +98,13 @@ class IslandCallService : InCallService() {
             return
         }
 
+        val currentState = stateManager.currentState.value
+        val wasExpanded = if (currentState is IslandState.Call) {
+            currentState.isExpanded
+        } else {
+            isIncoming // Auto-expand for incoming, start compact for others
+        }
+
         stateManager.pushState(
             IslandState.Call(
                 callerName = name ?: number ?: "Unknown",
@@ -106,7 +113,7 @@ class IslandCallService : InCallService() {
                 isIncoming = isIncoming,
                 isOngoing = isOngoing,
                 duration = ongoingDuration,
-                isExpanded = isIncoming // Auto expand on incoming
+                isExpanded = wasExpanded
             )
         )
     }

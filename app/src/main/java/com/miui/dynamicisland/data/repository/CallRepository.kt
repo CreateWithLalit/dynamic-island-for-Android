@@ -1,6 +1,7 @@
 package com.miui.dynamicisland.data.repository
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -217,6 +218,7 @@ class CallRepository(private val context: Context) {
         declineCall()
     }
 
+    @SuppressLint("MissingPermission")
     fun placeCall(number: String) {
         try {
             val uri = android.net.Uri.fromParts("tel", number, null)

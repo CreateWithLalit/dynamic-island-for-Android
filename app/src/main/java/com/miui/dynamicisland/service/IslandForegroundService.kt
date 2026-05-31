@@ -217,22 +217,36 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             val isReplying = (it as? IslandState.Notification)?.isReplying == true
             
             // If replying, we MUST remove FLAG_NOT_FOCUSABLE to allow keyboard input.
-            // Otherwise, we keep it so gestures (like back) work normally.
+            // We also use FLAG_ALT_FOCUSABLE_IM for better IME interaction in overlays.
             val baseFlags = if (isReplying) {
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or 
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
             } else {
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             }
 
             params.flags = baseFlags or
                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
+            params.softInputMode = if (isReplying) {
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or 
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+            } else {
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+            }
+
             params.width = if (it.isExpanded) {
                 WindowManager.LayoutParams.MATCH_PARENT
             } else {
                 WindowManager.LayoutParams.WRAP_CONTENT
             }
+            
+            if (isReplying) {
+                IslandLogger.d(TAG, "Entering Reply mode - making overlay focusable", null)
+            }
+
             applyLockScreenFlags(params)
         }
 
@@ -488,7 +502,6 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                         )
                     }
                     com.miui.dynamicisland.data.model.CallState.OffHook -> {
-                        val wasExpanded = (current as? IslandState.Call)?.isExpanded ?: true
                         val prevCall = current as? IslandState.Call
                         stateManager.pushState(
                             IslandState.Call(

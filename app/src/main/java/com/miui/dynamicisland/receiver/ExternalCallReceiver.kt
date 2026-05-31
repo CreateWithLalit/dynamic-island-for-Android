@@ -35,6 +35,8 @@ class ExternalCallReceiver : BroadcastReceiver() {
                 )
             }
             "ONGOING" -> {
+                val current = stateManager.currentState.value
+                val wasExpanded = (current as? IslandState.Call)?.isExpanded ?: false
                 stateManager.pushState(
                     IslandState.Call(
                         callerName = name ?: number,
@@ -42,7 +44,7 @@ class ExternalCallReceiver : BroadcastReceiver() {
                         isIncoming = false,
                         isOngoing = true,
                         duration = duration,
-                        isExpanded = false
+                        isExpanded = wasExpanded
                     )
                 )
             }

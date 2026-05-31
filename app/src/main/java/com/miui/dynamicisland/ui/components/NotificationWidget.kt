@@ -10,6 +10,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -28,6 +30,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,6 +111,7 @@ private fun NotificationLeftSlot(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotificationExpandedContent(
     state: IslandState.Notification,
@@ -134,6 +139,16 @@ private fun NotificationExpandedContent(
     val isReplying = state.isReplying
     var replyText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val focusRequester = remember { FocusRequester() }
+    
+    LaunchedEffect(isReplying) {
+        if (isReplying) {
+            // Delay slightly to wait for window focus flags to apply
+            kotlinx.coroutines.delay(100)
+            focusRequester.requestFocus()
+        }
+    }
+
     val density = LocalDensity.current
     val swipeThresholdPx = remember(density) { with(density) { 24.dp.toPx() } }
     var dragTotal by remember { mutableStateOf(0f) }
@@ -162,9 +177,14 @@ private fun NotificationExpandedContent(
         modifier = modifier
             .fillMaxWidth()
             .then(swipeModifier)
-            .clickable(
+            .combinedClickable(
                 enabled = !isReplying,
                 onClick = {
+                    // Single click: Collapse to normal position
+                    IslandStateManager.getInstance().collapseCurrentState()
+                },
+                onDoubleClick = {
+                    // Double click: Open the app
                     IslandStateManager.getInstance().collapseCurrentState()
                     try {
                         state.contentIntent?.send()
@@ -254,7 +274,8 @@ private fun NotificationExpandedContent(
                         placeholder = { Text("Type a reply...", color = Color.Gray, fontSize = 14.sp) },
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 44.dp),
+                            .heightIn(min = 44.dp)
+                            .focusRequester(focusRequester),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Color(0xFF2C2C2E),
                             unfocusedContainerColor = Color(0xFF2C2C2E),
