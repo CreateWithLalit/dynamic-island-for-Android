@@ -9,8 +9,10 @@ package com.miui.dynamicisland.ui.island
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
@@ -74,6 +76,7 @@ private val DEFAULT_EXP_RADIUS = 30.dp
 
 // ─── Root composable ──────────────────────────────────────────────────────────
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun DynamicIsland(
     state: IslandState,
@@ -142,16 +145,11 @@ fun DynamicIsland(
     Box(
         modifier = modifier
             .wrapContentSize()
-            .then(
-                if (state !is IslandState.Notification || !state.isExpanded) {
-                    // Use class and expanded state as keys to only restart when necessary
-                    Modifier.pointerInput(state::class, state.isExpanded) {
-                        detectTapGestures(
-                            onTap = { currentOnTap() },
-                            onDoubleTap = { currentOnDoubleTap() }
-                        )
-                    }
-                } else Modifier
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onDoubleClick = { currentOnDoubleTap() },
+                onClick = { currentOnTap() }
             )
             .then(
                 if (state.isExpanded && allStates.size > 1) {

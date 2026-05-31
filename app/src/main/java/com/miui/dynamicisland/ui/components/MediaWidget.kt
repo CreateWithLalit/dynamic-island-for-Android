@@ -10,9 +10,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,8 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -137,6 +138,7 @@ private fun WaveformBar(heightFactor: Float) {
 }
 
 // 🖼️ Image 3: Expanded Media Player
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MediaExpandedWidget(
     state: IslandState.Media,
@@ -147,6 +149,7 @@ private fun MediaExpandedWidget(
     val waveformColor = Color(0xFFFF3B30)
     val metaGrey = Color(0xFFCFC4C5)
     val trackDark = Color(0xFF2A2A2E)
+    val stateManager = remember { com.miui.dynamicisland.manager.IslandStateManager.getInstance() }
 
     val infiniteTransition = rememberInfiniteTransition(label = "expanded_waveform")
     val bar1 by infiniteTransition.animateFloat(0.35f, 1f, infiniteRepeatable(tween(500, easing = FastOutSlowInEasing), RepeatMode.Reverse))
@@ -156,6 +159,10 @@ private fun MediaExpandedWidget(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .combinedClickable(
+                onClick = { stateManager.collapseCurrentState() },
+                onDoubleClick = { onMediaAction(MediaAction.LaunchApp) }
+            )
             .padding(horizontal = 20.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

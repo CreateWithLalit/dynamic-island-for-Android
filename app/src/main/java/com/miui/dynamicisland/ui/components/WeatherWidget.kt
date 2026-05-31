@@ -95,7 +95,7 @@ private fun WeatherExpanded(
         }
     }
 
-    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
     val dateFormat = SimpleDateFormat("EEEE, d MMM", Locale.getDefault())
     val currentTimeStr = timeFormat.format(Date(currentTimeMillis))
     val currentDateStr = dateFormat.format(Date(currentTimeMillis))
@@ -172,8 +172,8 @@ private fun WeatherExpanded(
 
 @Composable
 private fun SunMoonTrajectory(sunrise: Long, sunset: Long, currentTime: Long) {
-    val sunriseTime = SimpleDateFormat("H:mm", Locale.getDefault()).format(Date(sunrise * 1000))
-    val sunsetTime = SimpleDateFormat("H:mm", Locale.getDefault()).format(Date(sunset * 1000))
+    val sunriseTime = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(sunrise * 1000))
+    val sunsetTime = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(sunset * 1000))
 
     val isDay = currentTime in sunrise..sunset
 
@@ -259,7 +259,7 @@ private fun SunMoonTrajectory(sunrise: Long, sunset: Long, currentTime: Long) {
 
 @Composable
 private fun HourlyItem(item: com.miui.dynamicisland.data.model.HourlyWeather) {
-    val hour = SimpleDateFormat("H:00", Locale.getDefault()).format(Date(item.time))
+    val hour = SimpleDateFormat("h a", Locale.getDefault()).format(Date(item.time))
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)

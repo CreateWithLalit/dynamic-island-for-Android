@@ -733,13 +733,9 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         val allStates = stateManager.allStates.value
         allStates.forEach { state ->
             when (state) {
-                is IslandState.Media -> if (state.isPlaying) count++
-                is IslandState.Call -> count++
                 is IslandState.Notification -> count += state.queueCount
-                is IslandState.Weather -> count++
-                is IslandState.Bluetooth -> if (state.isConnected) count++
-                is IslandState.Charging -> count++
-                is IslandState.Silent -> count++
+                is IslandState.Call -> count++
+                // Media, Weather, Bluetooth, etc. are persistent states, not "unread" notifications
                 else -> {}
             }
         }

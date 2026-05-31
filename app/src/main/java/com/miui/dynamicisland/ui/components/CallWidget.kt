@@ -7,8 +7,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -134,15 +137,21 @@ private fun CallRightSlot(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CallExpandedContent(
     state: IslandState.Call,
     onCallAction: (CallAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val stateManager = remember { com.miui.dynamicisland.manager.IslandStateManager.getInstance() }
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .combinedClickable(
+                onClick = { stateManager.collapseCurrentState() },
+                onDoubleClick = { onCallAction(CallAction.LaunchApp) }
+            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -248,21 +257,18 @@ private fun CallActionButton(
 ) {
     Box(
         modifier = Modifier
-            .size(42.dp)
+            .size(44.dp)
             .clip(CircleShape)
             .background(color)
-            .padding(8.dp)
-            .scale(if (icon == Icons.Default.CallEnd) 1f else 1f), // adjustments if needed
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(42.dp)) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(24.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
