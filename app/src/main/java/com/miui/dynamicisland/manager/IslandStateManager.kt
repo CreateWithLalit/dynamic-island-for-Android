@@ -35,9 +35,16 @@ class IslandStateManager private constructor() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val activeStates = LinkedHashMap<KClass<out IslandState>, ActiveState>()
     private val timeoutJobs = mutableMapOf<KClass<out IslandState>, Job>()
+    private var expandCollapseJob: Job? = null
 
     private val _currentState = MutableStateFlow<IslandState>(IslandState.Idle)
     val currentState: StateFlow<IslandState> = _currentState.asStateFlow()
+
+    private val _allStates = MutableStateFlow<List<IslandState>>(emptyList())
+    val allStates: StateFlow<List<IslandState>> = _allStates.asStateFlow()
+
+    private val _currentIndex = MutableStateFlow(0)
+    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
     private var sequenceCounter = 0L
 
@@ -65,31 +72,57 @@ class IslandStateManager private constructor() {
         updateCurrentState()
     }
 
-    fun expandCurrentState(ms: Long = 5000L) {
+    fun expandCurrentState(ms: Long = 5000L, forceAutoCollapse: Boolean = false) {
         val current = _currentState.value
-        if (current is IslandState.Idle || current.isExpanded) return
+        if (current is IslandState.Idle) return
 
         val expandedState = current.withExpanded(true)
         pushState(expandedState)
 
-        // Auto-collapse for non-media states (Exclude Notifications as requested)
-        if (current !is IslandState.Media && current !is IslandState.Call && current !is IslandState.Notification) {
-            scope.launch {
+        expandCollapseJob?.cancel()
+
+        // Auto-collapse logic
+        val shouldCollapse = forceAutoCollapse || (current !is IslandState.Media && current !is IslandState.Call && current !is IslandState.Notification)
+
+        if (shouldCollapse) {
+            expandCollapseJob = scope.launch {
                 delay(ms)
-                val collapsedState = current.withExpanded(false)
-                pushState(collapsedState)
+                collapseCurrentState()
             }
         }
     }
 
     fun collapseCurrentState() {
+        expandCollapseJob?.cancel()
+        expandCollapseJob = null
+        _currentIndex.value = 0
         val current = _currentState.value
         if (!current.isExpanded) return
         val collapsedState = current.withExpanded(false)
         pushState(collapsedState)
     }
 
+    fun nextState() {
+        val states = _allStates.value
+        if (states.size <= 1) return
+        val nextIdx = (_currentIndex.value + 1) % states.size
+        _currentIndex.value = nextIdx
+        val isCurrentlyExpanded = _currentState.value.isExpanded
+        _currentState.value = states[nextIdx].withExpanded(isCurrentlyExpanded)
+    }
+
+    fun previousState() {
+        val states = _allStates.value
+        if (states.size <= 1) return
+        val prevIdx = if (_currentIndex.value <= 0) states.size - 1 else _currentIndex.value - 1
+        _currentIndex.value = prevIdx
+        val isCurrentlyExpanded = _currentState.value.isExpanded
+        _currentState.value = states[prevIdx].withExpanded(isCurrentlyExpanded)
+    }
+
     fun clearAll() {
+        expandCollapseJob?.cancel()
+        expandCollapseJob = null
         timeoutJobs.values.forEach { it.cancel() }
         timeoutJobs.clear()
         activeStates.clear()
@@ -97,9 +130,24 @@ class IslandStateManager private constructor() {
     }
 
     private fun updateCurrentState() {
-        val nextState = activeStates.values
-            .maxWithOrNull(compareBy<ActiveState> { it.state.priority }.thenBy { it.sequence })
-            ?.state ?: IslandState.Idle
-        _currentState.value = nextState
+        val sortedStates = activeStates.values
+            .sortedWith(compareByDescending<ActiveState> { it.state.priority }.thenByDescending { it.sequence })
+            .map { it.state }
+
+        _allStates.value = sortedStates
+
+        if (sortedStates.isEmpty()) {
+            _currentState.value = IslandState.Idle
+            _currentIndex.value = 0
+            return
+        }
+
+        // Keep current index within bounds if it was manually changed (e.g. while expanded)
+        val idx = _currentIndex.value.coerceIn(0, (sortedStates.size - 1).coerceAtLeast(0))
+        _currentIndex.value = idx
+        
+        // Use the state as it is in the activeStates map. 
+        // This allows expandCurrentState to work by pushing an expanded version.
+        _currentState.value = sortedStates[idx]
     }
 }

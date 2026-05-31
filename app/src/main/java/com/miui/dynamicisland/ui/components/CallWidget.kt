@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -191,7 +193,7 @@ private fun CallExpandedContent(
                     text = formatDuration(state.duration),
                     color = CallGreen,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Normal
                 )
             }
         }
@@ -212,6 +214,20 @@ private fun CallExpandedContent(
                     onClick = { onCallAction(CallAction.Accept) }
                 )
             } else if (state.isOngoing) {
+                // Mute (Microphone toggle)
+                CallActionButton(
+                    icon = if (state.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                    color = if (state.isMuted) Color.White else CallControlBg,
+                    iconTint = if (state.isMuted) Color.Black else Color.White,
+                    onClick = { onCallAction(CallAction.Mute) }
+                )
+                // Speaker (Grey/Toggle)
+                CallActionButton(
+                    icon = Icons.Rounded.VolumeUp,
+                    color = if (state.isSpeakerOn) Color.White else CallControlBg,
+                    iconTint = if (state.isSpeakerOn) Color.Black else Color.White,
+                    onClick = { onCallAction(CallAction.ToggleSpeaker) }
+                )
                 // End Call (Red)
                 CallActionButton(
                     icon = Icons.Default.CallEnd,
@@ -227,6 +243,7 @@ private fun CallExpandedContent(
 private fun CallActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     color: Color,
+    iconTint: Color = Color.White,
     onClick: () -> Unit
 ) {
     Box(
@@ -242,7 +259,7 @@ private fun CallActionButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White,
+                tint = iconTint,
                 modifier = Modifier.size(24.dp)
             )
         }

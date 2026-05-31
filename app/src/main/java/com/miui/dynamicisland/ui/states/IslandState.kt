@@ -97,6 +97,8 @@ sealed class IslandState(
         val callerPhoto: Bitmap? = null,
         val isIncoming: Boolean = false,
         val isOngoing: Boolean = true,
+        val isSpeakerOn: Boolean = false,
+        val isMuted: Boolean = false,
         val duration: Long = 0L,
         override val isExpanded: Boolean = false
     ) : IslandState(40, Long.MAX_VALUE, true, isExpanded)
@@ -106,8 +108,20 @@ sealed class IslandState(
         val condition: String,
         val iconCode: String,
         val cityName: String,
+        val sunrise: Long = 0,
+        val sunset: Long = 0,
+        val windSpeed: Double = 0.0,
+        val humidity: Int = 0,
+        val visibility: Int = 0,
+        val hourlyForecast: List<com.miui.dynamicisland.data.model.HourlyWeather> = emptyList(),
+        val dailyForecast: List<com.miui.dynamicisland.data.model.DailyWeather> = emptyList(),
         override val isExpanded: Boolean = false
     ) : IslandState(5, Long.MAX_VALUE, true, isExpanded)
+
+    data class LockScreen(
+        val notificationCount: Int,
+        override val isExpanded: Boolean = false
+    ) : IslandState(100, Long.MAX_VALUE, false, isExpanded)
 } // ✅ Added missing closing brace
 
 // Extension function (now outside sealed class)
@@ -121,6 +135,7 @@ fun IslandState.withExpanded(expanded: Boolean): IslandState {
         is IslandState.Silent -> copy(isExpanded = expanded)
         is IslandState.Volume -> copy(isExpanded = expanded)
         is IslandState.Weather -> copy(isExpanded = expanded)
+        is IslandState.LockScreen -> copy(isExpanded = expanded)
         else -> this
     }
 }

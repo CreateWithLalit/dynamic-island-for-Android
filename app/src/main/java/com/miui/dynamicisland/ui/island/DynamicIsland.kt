@@ -8,18 +8,25 @@ package com.miui.dynamicisland.ui.island
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.ui.text.font.FontWeight
 import com.miui.dynamicisland.manager.IslandCalibration
 import com.miui.dynamicisland.manager.IslandStateManager
 import com.miui.dynamicisland.manager.getIslandSizeManager
@@ -33,6 +40,7 @@ sealed class MediaAction {
     object Next      : MediaAction()
     object Previous  : MediaAction()
     data class Seek(val position: Float) : MediaAction()   // 0f–1f progress fraction
+    object LaunchApp : MediaAction()
 }
 
 // ─── Sealed action type for call controls ─────────────────────────────────────
@@ -41,6 +49,8 @@ sealed class CallAction {
     object Decline : CallAction()
     object End     : CallAction()
     object Mute    : CallAction()
+    object ToggleSpeaker : CallAction()
+    object LaunchApp     : CallAction()
 }
 
 // ─── Slot enum for weather widget (LEFT = temperature, RIGHT = icon) ──────────
@@ -58,6 +68,7 @@ private val MEDIA_EXP_RADIUS  = 52.dp
 
 private val NOTIFY_EXP_HEIGHT = 140.dp
 private val CHARGE_EXP_HEIGHT = 84.dp
+private val WEATHER_EXP_HEIGHT = 300.dp
 private val DEFAULT_EXP_WIDTH = EXPANDED_WIDTH_DP.dp
 private val DEFAULT_EXP_RADIUS = 30.dp
 
@@ -72,27 +83,87 @@ fun DynamicIsland(
     onCallAction: (CallAction) -> Unit = {}
 ) {
     val stateManager = remember { IslandStateManager.getInstance() }
+    val allStates by stateManager.allStates.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Tap handler: toggle expand/collapse for interactive states
-    val onTap: () -> Unit = remember(state) {
-        {
-            when {
-                state.isExpanded -> stateManager.collapseCurrentState()
-                state.allowInteraction -> stateManager.expandCurrentState(6000L)
-                else -> { /* non-interactive states (Silent, Bluetooth) – no-op */ }
+    // Use rememberUpdatedState to keep the latest actions without restarting pointerInput
+    val currentOnMediaAction by rememberUpdatedState(onMediaAction)
+    val currentOnCallAction by rememberUpdatedState(onCallAction)
+
+    // 1. Single Click: Toggle Expand/Collapse
+    val onTap = {
+        if (state.isExpanded) {
+            stateManager.collapseCurrentState()
+        } else if (state.allowInteraction) {
+            stateManager.expandCurrentState(6000L)
+        }
+        Unit
+    }
+
+    // 2. Double Click: Open associated App
+    val onDoubleTap = {
+        stateManager.collapseCurrentState()
+        when (state) {
+            is IslandState.Media -> {
+                currentOnMediaAction(MediaAction.LaunchApp)
             }
+            is IslandState.Call -> {
+                currentOnCallAction(CallAction.LaunchApp)
+            }
+            is IslandState.Weather -> {
+                val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                    addCategory(android.content.Intent.CATEGORY_APP_WEATHER)
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                try {
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    val fallbackIntent = context.packageManager.getLaunchIntentForPackage("com.miui.weather2") 
+                        ?: context.packageManager.getLaunchIntentForPackage("com.google.android.apps.messaging")
+                    fallbackIntent?.let { context.startActivity(it) }
+                }
+            }
+            is IslandState.Notification -> {
+                try {
+                    state.contentIntent?.send()
+                } catch (e: Exception) {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
+                    launchIntent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    launchIntent?.let { context.startActivity(it) }
+                }
+            }
+            else -> {}
         }
     }
+
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
 
     Box(
         modifier = modifier
             .wrapContentSize()
             .then(
-                // For notifications, we let the internal widget handle clicks to avoid swipe conflicts.
-                // For everything else (Music, Weather, Battery), we keep the root tap-to-collapse logic.
                 if (state !is IslandState.Notification || !state.isExpanded) {
-                    Modifier.pointerInput(state) {
-                        detectTapGestures(onTap = { onTap() })
+                    // Use class and expanded state as keys to only restart when necessary
+                    Modifier.pointerInput(state::class, state.isExpanded) {
+                        detectTapGestures(
+                            onTap = { currentOnTap() },
+                            onDoubleTap = { currentOnDoubleTap() }
+                        )
+                    }
+                } else Modifier
+            )
+            .then(
+                if (state.isExpanded && allStates.size > 1) {
+                    Modifier.pointerInput(Unit) {
+                        detectHorizontalDragGestures { change, dragAmount ->
+                            change.consume()
+                            if (dragAmount > 50) {
+                                stateManager.previousState()
+                            } else if (dragAmount < -50) {
+                                stateManager.nextState()
+                            }
+                        }
                     }
                 } else Modifier
             ),
@@ -102,8 +173,28 @@ fun DynamicIsland(
             state       = state,
             calibration = calibration,
             onMediaAction = onMediaAction,
-            onCallAction = onCallAction
+            onCallAction = onCallAction,
+            queueCount   = allStates.size
         )
+    }
+}
+
+@Composable
+fun QueueIndicator(count: Int) {
+    if (count <= 1) return
+    Row(
+        modifier = Modifier.padding(end = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(count.coerceAtMost(3)) {
+            Box(
+                modifier = Modifier
+                    .size(3.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.5f))
+            )
+        }
     }
 }
 
@@ -114,14 +205,17 @@ private fun IslandShell(
     state: IslandState,
     calibration: IslandCalibration,
     onMediaAction: (MediaAction) -> Unit,
-    onCallAction: (CallAction) -> Unit
+    onCallAction: (CallAction) -> Unit,
+    queueCount: Int = 0
 ) {
     val context = LocalContext.current
     val sizeManager = remember { getIslandSizeManager(context) }
     val overridesMap by sizeManager.overridesFlow.collectAsState()
     val expandedWidthScale by sizeManager.expandedWidthScaleFlow.collectAsState()
-    val expandedHeightScale by sizeManager.expandedHeightScaleFlow.collectAsState()
+    val globalExpandedHeightScale by sizeManager.expandedHeightScaleFlow.collectAsState()
     val override = overridesMap[state::class]
+    
+    val expandedHeightScale = override?.expandedHeightScale ?: globalExpandedHeightScale
 
     // Apply user-calibrated overrides to the compact dimensions
     val calibW = calibration.pillWidth.dp
@@ -154,7 +248,7 @@ private fun IslandShell(
             if (state.isExpanded) {
                 AnimatedCutoutSafeIslandShell(
                     targetWidth        = scaleExpandedWidth(DEFAULT_EXP_WIDTH),
-                    targetHeight       = scaleExpandedHeight(CHARGE_EXP_HEIGHT),
+                    targetHeight       = scaleExpandedHeight(WEATHER_EXP_HEIGHT),
                     targetCornerRadius = scaleExpandedRadius(DEFAULT_EXP_RADIUS),
                     centerContent = {
                         WeatherWidget(
@@ -177,11 +271,14 @@ private fun IslandShell(
                         )
                     },
                     rightContent = {
-                        WeatherWidget(
-                            state      = state,
-                            isExpanded = false,
-                            slot       = WeatherSlot.RIGHT
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            WeatherWidget(
+                                state      = state,
+                                isExpanded = false,
+                                slot       = WeatherSlot.RIGHT
+                            )
+                        }
                     }
                 )
             }
@@ -222,7 +319,10 @@ private fun IslandShell(
                         MediaWidget(state = state, slot = MediaSlot.LEFT, onMediaAction = onMediaAction)
                     },
                     rightContent = {
-                        MediaWidget(state = state, slot = MediaSlot.RIGHT, onMediaAction = onMediaAction)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            MediaWidget(state = state, slot = MediaSlot.RIGHT, onMediaAction = onMediaAction)
+                        }
                     }
                 )
             }
@@ -256,7 +356,10 @@ private fun IslandShell(
                         )
                     },
                     rightContent = {
-                        ChargingWidget(state = state, slot = ChargingSlot.RIGHT, isExpanded = false)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            ChargingWidget(state = state, slot = ChargingSlot.RIGHT, isExpanded = false)
+                        }
                     }
                 )
             }
@@ -289,7 +392,7 @@ private fun IslandShell(
                     targetHeight       = targetH,
                     targetCornerRadius = targetR,
                     leftContent  = { NotificationWidget(state = state, slot = NotificationSlot.LEFT) },
-                    rightContent = { /* Empty right - icons are grouped on left */ }
+                    rightContent = { QueueIndicator(queueCount) }
                 )
             }
         }
@@ -301,7 +404,12 @@ private fun IslandShell(
                 targetHeight       = compactHeight(calibH),
                 targetCornerRadius = compactRadius(calibR),
                 leftContent  = { BluetoothWidget(state = state, slot = BluetoothSlot.LEFT) },
-                rightContent = { BluetoothWidget(state = state, slot = BluetoothSlot.RIGHT) }
+                rightContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        QueueIndicator(queueCount)
+                        BluetoothWidget(state = state, slot = BluetoothSlot.RIGHT)
+                    }
+                }
             )
         }
 
@@ -312,7 +420,12 @@ private fun IslandShell(
                 targetHeight       = compactHeight(calibH),
                 targetCornerRadius = compactRadius(calibR),
                 leftContent  = { SilentWidget(state = state, slot = SilentSlot.LEFT) },
-                rightContent = { SilentWidget(state = state, slot = SilentSlot.RIGHT) }
+                rightContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        QueueIndicator(queueCount)
+                        SilentWidget(state = state, slot = SilentSlot.RIGHT)
+                    }
+                }
             )
         }
 
@@ -348,9 +461,42 @@ private fun IslandShell(
                     targetHeight       = targetH,
                     targetCornerRadius = targetR,
                     leftContent  = { CallWidget(state = state, slot = CallSlot.LEFT) },
-                    rightContent = { CallWidget(state = state, slot = CallSlot.RIGHT) }
+                    rightContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            CallWidget(state = state, slot = CallSlot.RIGHT)
+                        }
+                    }
                 )
             }
+        }
+
+        // ── Lock Screen ───────────────────────────────────────────────────────
+        is IslandState.LockScreen -> {
+            AnimatedCutoutSafeIslandShell(
+                targetWidth        = compactWidth(calibW),
+                targetHeight       = compactHeight(calibH),
+                targetCornerRadius = compactRadius(calibR),
+                leftContent = {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Locked",
+                        modifier = Modifier.padding(start = 12.dp).size(20.dp),
+                        tint = Color.White
+                    )
+                },
+                rightContent = {
+                    if (state.notificationCount > 0) {
+                        Text(
+                            text = state.notificationCount.toString(),
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(end = 12.dp)
+                        )
+                    }
+                }
+            )
         }
     }
 }

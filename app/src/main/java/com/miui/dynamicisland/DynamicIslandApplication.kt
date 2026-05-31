@@ -37,7 +37,14 @@ class DynamicIslandApplication : Application() {
                             temperature = weather.temperature,
                             condition = weather.condition,
                             iconCode = weather.iconCode,
-                            cityName = weather.cityName
+                            cityName = weather.cityName,
+                            sunrise = weather.sunrise,
+                            sunset = weather.sunset,
+                            windSpeed = weather.windSpeed,
+                            humidity = weather.humidity,
+                            visibility = weather.visibility,
+                            hourlyForecast = weather.hourlyForecast,
+                            dailyForecast = weather.dailyForecast
                         )
                     )
                 }

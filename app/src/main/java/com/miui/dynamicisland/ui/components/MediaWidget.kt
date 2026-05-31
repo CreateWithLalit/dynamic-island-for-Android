@@ -208,7 +208,7 @@ private fun MediaExpandedWidget(
                 Text(
                     state.title,
                     color = MediaTextPrimary,
-                    fontSize = 20.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -216,7 +216,8 @@ private fun MediaExpandedWidget(
                 Text(
                     state.artist,
                     color = metaGrey,
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -244,8 +245,8 @@ private fun MediaExpandedWidget(
             Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(state.formattedPosition, color = metaGrey, fontSize = 11.sp)
-            Text(state.formattedRemainingTime, color = metaGrey, fontSize = 11.sp)
+            Text(state.formattedPosition, color = metaGrey, fontSize = 12.sp)
+            Text(state.formattedRemainingTime, color = metaGrey, fontSize = 12.sp)
         }
 
         Spacer(Modifier.height(16.dp))

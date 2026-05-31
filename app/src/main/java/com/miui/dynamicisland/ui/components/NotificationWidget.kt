@@ -38,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -139,13 +140,15 @@ private fun NotificationExpandedContent(
     val isReplying = state.isReplying
     var replyText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     
     LaunchedEffect(isReplying) {
         if (isReplying) {
             // Delay slightly to wait for window focus flags to apply
-            kotlinx.coroutines.delay(100)
+            kotlinx.coroutines.delay(150)
             focusRequester.requestFocus()
+            keyboardController?.show()
         }
     }
 
@@ -191,7 +194,7 @@ private fun NotificationExpandedContent(
                     } catch (e: Exception) {
                         val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
                         launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        if (launchIntent != null) context.startActivity(launchIntent)
+                        launchIntent?.let { context.startActivity(it) }
                     }
                 }
             )
@@ -215,8 +218,8 @@ private fun NotificationExpandedContent(
                 Text(
                     text = "$displayLabel • Just now",
                     color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
                     letterSpacing = 0.5.sp
                 )
             }
@@ -232,7 +235,7 @@ private fun NotificationExpandedContent(
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text("CLEAR ALL", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("CLEAR ALL", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     if (canNavigate) {
@@ -285,7 +288,7 @@ private fun NotificationExpandedContent(
                             unfocusedTextColor = Color.White
                         ),
                         shape = RoundedCornerShape(22.dp),
-                        textStyle = TextStyle(fontSize = 15.sp),
+                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Normal),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Text,
                             imeAction = ImeAction.Send
@@ -297,6 +300,7 @@ private fun NotificationExpandedContent(
                                 replyText = ""
                                 IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
                                 focusManager.clearFocus()
+                                keyboardController?.hide()
                             }
                         })
                     )
@@ -309,6 +313,7 @@ private fun NotificationExpandedContent(
                                 replyText = ""
                                 IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
                                 focusManager.clearFocus()
+                                keyboardController?.hide()
                             }
                         },
                         modifier = Modifier.size(44.dp).background(Color(0xFF30D158), CircleShape)
@@ -348,7 +353,7 @@ private fun NotificationExpandedContent(
                             Text(
                                 text = target.title.ifBlank { "Notification" },
                                 color = Color.White,
-                                fontSize = 20.sp,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -357,9 +362,9 @@ private fun NotificationExpandedContent(
                                 Text(
                                     text = target.content,
                                     color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 15.sp,
+                                    fontSize = 14.sp,
                                     lineHeight = 20.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.Normal,
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -407,7 +412,7 @@ private fun NotificationExpandedContent(
                             val launchIntent =
                                 context.packageManager.getLaunchIntentForPackage(state.packageName)
                             launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            if (launchIntent != null) context.startActivity(launchIntent)
+                            launchIntent?.let { context.startActivity(it) }
                         }
                     }
                 } else if (!isReplying) {
@@ -459,7 +464,7 @@ private fun ActionChip(label: String, onClick: () -> Unit) {
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 9.dp)
     ) {
-        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 

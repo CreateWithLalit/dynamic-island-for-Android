@@ -165,6 +165,15 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                     onCallAction  = { handleCallAction(it) }
                 )
             }
+
+            setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_OUTSIDE) {
+                    stateManager.collapseCurrentState()
+                    true
+                } else {
+                    false
+                }
+            }
         }
 
         val params = getNonTouchableParams()
@@ -341,6 +350,13 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             condition   = weatherInfo.condition,
                             iconCode    = weatherInfo.iconCode,
                             cityName    = weatherInfo.cityName,
+                            sunrise     = weatherInfo.sunrise,
+                            sunset      = weatherInfo.sunset,
+                            windSpeed   = weatherInfo.windSpeed,
+                            humidity    = weatherInfo.humidity,
+                            visibility  = weatherInfo.visibility,
+                            hourlyForecast = weatherInfo.hourlyForecast,
+                            dailyForecast = weatherInfo.dailyForecast,
                             isExpanded  = false
                         )
                     )
@@ -444,6 +460,10 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                 if (current != null && queueState.isNotEmpty) {
                     val currentState = stateManager.currentState.value
                     val wasExpanded = (currentState as? IslandState.Notification)?.isExpanded ?: false
+                    val wasReplying = (currentState as? IslandState.Notification)?.let {
+                        if (it.notificationKey == current.notificationKey) it.isReplying else false
+                    } ?: false
+
                     stateManager.pushState(
                         IslandState.Notification(
                             appName     = current.appName,
@@ -458,7 +478,8 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             actions = current.actions,
                             notificationKey = current.notificationKey,
                             isMessage = current.isMessage,
-                            isExpanded = wasExpanded
+                            isExpanded = wasExpanded,
+                            isReplying = wasReplying
                         )
                     )
                 } else {
@@ -497,6 +518,8 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 callerPhoto = photo,
                                 isIncoming = true,
                                 isOngoing = false,
+                                isSpeakerOn = callRepo.isSpeakerOn(),
+                                isMuted = callRepo.isMuted(),
                                 isExpanded = true // Auto-expand on ringing
                             )
                         )
@@ -510,6 +533,8 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                                 callerPhoto = prevCall?.callerPhoto,
                                 isIncoming = false,
                                 isOngoing = true,
+                                isSpeakerOn = callRepo.isSpeakerOn(),
+                                isMuted = callRepo.isMuted(),
                                 duration = duration,
                                 isExpanded = wasExpanded
                             )
@@ -526,29 +551,84 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
     private fun handleMediaAction(action: MediaAction) {
         val current = stateManager.currentState.value as? IslandState.Media
 
+        // Common logic for buttons in expanded state
+        val isExpanded = current?.isExpanded == true
+
         when (action) {
             MediaAction.PlayPause -> {
                 if (current?.isPlaying == true) mediaRepository.pause()
                 else mediaRepository.play()
+                if (isExpanded) {
+                    stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+                    mediaRepository.launchMusicApp()
+                }
             }
-            MediaAction.Next     -> mediaRepository.next()
-            MediaAction.Previous -> mediaRepository.previous()
-            is MediaAction.Seek  -> {
+            MediaAction.Next -> {
+                mediaRepository.next()
+                if (isExpanded) {
+                    stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+                    mediaRepository.launchMusicApp()
+                }
+            }
+            MediaAction.Previous -> {
+                mediaRepository.previous()
+                if (isExpanded) {
+                    stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+                    mediaRepository.launchMusicApp()
+                }
+            }
+            is MediaAction.Seek -> {
                 val durationMs = current?.duration ?: 0L
                 if (durationMs > 0L) {
                     mediaRepository.seekTo((action.position * durationMs).toLong())
                 }
+                if (isExpanded) {
+                    stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+                }
+            }
+            MediaAction.LaunchApp -> {
+                mediaRepository.launchMusicApp()
             }
         }
     }
 
     private fun handleCallAction(action: CallAction) {
         val callRepo = (application as? DynamicIslandApplication)?.callRepository ?: return
+        val current = stateManager.currentState.value as? IslandState.Call
+        val isExpanded = current?.isExpanded == true
+
         when (action) {
-            CallAction.Accept  -> callRepo.acceptCall()
-            CallAction.Decline -> callRepo.declineCall()
-            CallAction.End     -> callRepo.endCall()
-            CallAction.Mute    -> callRepo.toggleMute()
+            CallAction.Accept -> {
+                callRepo.acceptCall()
+                if (isExpanded) stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+            }
+            CallAction.Decline -> {
+                callRepo.declineCall()
+                // Usually declines close the pill anyway via state removal, but safety first:
+                if (isExpanded) stateManager.collapseCurrentState()
+            }
+            CallAction.End -> {
+                callRepo.endCall()
+                if (isExpanded) stateManager.collapseCurrentState()
+            }
+            CallAction.Mute -> {
+                callRepo.toggleMute()
+                if (current != null) {
+                    stateManager.pushState(current.copy(isMuted = callRepo.isMuted()))
+                    if (isExpanded) stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+                }
+            }
+            CallAction.ToggleSpeaker -> {
+                callRepo.toggleSpeaker()
+                // Force a state refresh if currently in call state
+                if (current != null) {
+                    stateManager.pushState(current.copy(isSpeakerOn = callRepo.isSpeakerOn()))
+                    if (isExpanded) stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
+                }
+            }
+            CallAction.LaunchApp -> {
+                callRepo.launchDialerApp()
+            }
         }
     }
 
@@ -613,6 +693,24 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             }
         }
 
+        val screenFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        val screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_OFF -> {
+                        stateManager.pushState(IslandState.LockScreen(countAllNotifications()))
+                    }
+                    Intent.ACTION_USER_PRESENT -> {
+                        stateManager.removeState(IslandState.LockScreen::class.java)
+                    }
+                }
+            }
+        }
+
         ContextCompat.registerReceiver(
             this, batteryReceiver,
             IntentFilter(Intent.ACTION_BATTERY_CHANGED),
@@ -623,6 +721,29 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             audioFilter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(
+            this, screenReceiver,
+            screenFilter,
+            ContextCompat.RECEIVER_EXPORTED
+        )
+    }
+
+    private fun countAllNotifications(): Int {
+        var count = 0
+        val allStates = stateManager.allStates.value
+        allStates.forEach { state ->
+            when (state) {
+                is IslandState.Media -> if (state.isPlaying) count++
+                is IslandState.Call -> count++
+                is IslandState.Notification -> count += state.queueCount
+                is IslandState.Weather -> count++
+                is IslandState.Bluetooth -> if (state.isConnected) count++
+                is IslandState.Charging -> count++
+                is IslandState.Silent -> count++
+                else -> {}
+            }
+        }
+        return count
     }
 
     private fun createNotification() = NotificationCompat

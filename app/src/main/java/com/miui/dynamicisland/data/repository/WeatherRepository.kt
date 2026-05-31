@@ -6,6 +6,7 @@ import android.location.Location
 import android.location.LocationManager
 import androidx.core.content.ContextCompat
 import com.miui.dynamicisland.BuildConfig
+import java.util.*
 import com.miui.dynamicisland.data.api.WeatherApi
 import com.miui.dynamicisland.data.api.WeatherResponse
 import com.miui.dynamicisland.data.model.WeatherInfo
@@ -57,31 +58,52 @@ class WeatherRepository(private val context: Context) {
                     condition = "Clear",
                     iconCode = "01d",
                     cityName = DEFAULT_CITY,
-                    lastUpdated = System.currentTimeMillis()
+                    lastUpdated = System.currentTimeMillis(),
+                    sunrise = System.currentTimeMillis() / 1000 - 3600 * 5,
+                    sunset = System.currentTimeMillis() / 1000 + 3600 * 7,
+                    windSpeed = 15.0,
+                    humidity = 65,
+                    visibility = 10000,
+                    hourlyForecast = List(8) { i ->
+                        com.miui.dynamicisland.data.model.HourlyWeather(
+                            time = System.currentTimeMillis() + i * 3600 * 1000,
+                            temperature = 25 - i,
+                            iconCode = "01d",
+                            condition = "Clear"
+                        )
+                    },
+                    dailyForecast = List(5) { i ->
+                        com.miui.dynamicisland.data.model.DailyWeather(
+                            time = System.currentTimeMillis() + i * 86400 * 1000,
+                            minTemp = 18 + i,
+                            maxTemp = 30 + i,
+                            iconCode = if (i % 2 == 0) "01d" else "02d",
+                            condition = "Clear"
+                        )
+                    }
                 )
                 return
             }
 
-            val response = getWeatherResponse(apiKey)
-            val weatherInfo = mapResponseToWeatherInfo(response)
+            val location = getLastKnownNetworkLocation()
+            val weatherResponse = if (location != null) {
+                api.getWeatherByCoords(location.latitude, location.longitude, apiKey)
+            } else {
+                api.getWeather(DEFAULT_CITY, apiKey)
+            }
+
+            val forecastResponse = if (location != null) {
+                api.getForecastByCoords(location.latitude, location.longitude, apiKey)
+            } else {
+                api.getForecast(DEFAULT_CITY, apiKey)
+            }
+
+            val weatherInfo = mapResponseToWeatherInfo(weatherResponse, forecastResponse)
             _cachedWeather.value = weatherInfo
 
             IslandLogger.d(TAG, "Weather refreshed: ${weatherInfo.temperature}°C in ${weatherInfo.cityName}", null)
         } catch (e: Exception) {
             IslandLogger.e(TAG, "Failed to refresh weather: ${e.message}", e)
-        }
-    }
-
-    private suspend fun getWeatherResponse(apiKey: String): WeatherResponse {
-        val location = getLastKnownNetworkLocation()
-        return if (location != null) {
-            api.getWeatherByCoords(
-                latitude = location.latitude,
-                longitude = location.longitude,
-                apiKey = apiKey
-            )
-        } else {
-            api.getWeather(city = DEFAULT_CITY, apiKey = apiKey)
         }
     }
 
@@ -100,14 +122,47 @@ class WeatherRepository(private val context: Context) {
         }.getOrNull()
     }
 
-    private fun mapResponseToWeatherInfo(response: WeatherResponse): WeatherInfo {
-        val weather = response.weather.firstOrNull()
+    private fun mapResponseToWeatherInfo(
+        weatherResponse: com.miui.dynamicisland.data.api.WeatherResponse,
+        forecastResponse: com.miui.dynamicisland.data.api.ForecastResponse
+    ): WeatherInfo {
+        val weather = weatherResponse.weather.firstOrNull()
         return WeatherInfo(
-            temperature = response.main.temp.toInt(),
+            temperature = weatherResponse.main.temp.toInt(),
             condition = weather?.description?.replaceFirstChar { it.uppercase() } ?: "Unknown",
             iconCode = weather?.icon ?: "01d",
-            cityName = response.name,
-            lastUpdated = System.currentTimeMillis()
+            cityName = weatherResponse.name,
+            lastUpdated = System.currentTimeMillis(),
+            sunrise = weatherResponse.sys.sunrise,
+            sunset = weatherResponse.sys.sunset,
+            windSpeed = weatherResponse.wind.speed,
+            humidity = weatherResponse.main.humidity,
+            visibility = weatherResponse.visibility,
+            hourlyForecast = forecastResponse.list.take(8).map { item ->
+                com.miui.dynamicisland.data.model.HourlyWeather(
+                    time = item.dt * 1000,
+                    temperature = item.main.temp.toInt(),
+                    iconCode = item.weather.firstOrNull()?.icon ?: "01d",
+                    condition = item.weather.firstOrNull()?.description ?: "Unknown"
+                )
+            },
+            dailyForecast = forecastResponse.list
+                .groupBy { 
+                    val cal = java.util.Calendar.getInstance().apply { timeInMillis = it.dt * 1000 }
+                    cal.get(java.util.Calendar.DAY_OF_YEAR)
+                }
+                .values
+                .take(5)
+                .map { dayItems ->
+                    val first = dayItems.first()
+                    com.miui.dynamicisland.data.model.DailyWeather(
+                        time = first.dt * 1000,
+                        minTemp = dayItems.minOf { it.main.temp_min }.toInt(),
+                        maxTemp = dayItems.maxOf { it.main.temp_max }.toInt(),
+                        iconCode = dayItems[dayItems.size / 2].weather.firstOrNull()?.icon ?: "01d",
+                        condition = dayItems[dayItems.size / 2].weather.firstOrNull()?.description ?: "Unknown"
+                    )
+                }
         )
     }
 }

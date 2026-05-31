@@ -393,6 +393,7 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
             MediaAction.Next -> MediaRepositoryBridge.next()
             MediaAction.Previous -> MediaRepositoryBridge.previous()
             is MediaAction.Seek -> MediaRepositoryBridge.seekTo(action.position)
+            MediaAction.LaunchApp -> MediaRepositoryBridge.launchApp()
         }
     }
 
@@ -404,6 +405,8 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
             CallAction.Decline -> callRepo.declineCall()
             CallAction.End     -> callRepo.endCall()
             CallAction.Mute    -> callRepo.toggleMute()
+            CallAction.ToggleSpeaker -> callRepo.toggleSpeaker()
+            CallAction.LaunchApp -> callRepo.launchDialerApp()
         }
     }
 

@@ -117,6 +117,18 @@ class MediaRepository(private val context: Context) {
 
     // ── Playback controls ──────────────────────────────────────────────────────
 
+    fun launchMusicApp() {
+        val packageName = activeController?.packageName
+        if (!packageName.isNullOrBlank()) {
+            val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                IslandLogger.d(TAG, "Launched app: $packageName", null)
+            }
+        }
+    }
+
     fun play() {
         val ctrl = activeController
         if (ctrl != null) {

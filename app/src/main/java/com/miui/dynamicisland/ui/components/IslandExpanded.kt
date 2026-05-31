@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,6 +59,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +70,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.miui.dynamicisland.service.IslandNotificationListener
+import com.miui.dynamicisland.manager.IslandStateManager
 
 private val ExpandedSurface  = Color(0xFF1C1C1E)
 private val ExpandedDivider  = Color(0xFF2C2C2E)
@@ -117,7 +121,8 @@ fun IslandExpanded(
                 is IslandState.Weather      -> ExpandedWeather(state)
                 is IslandState.Idle,
                 is IslandState.Silent,
-                is IslandState.Volume       -> Unit
+                is IslandState.Volume,
+                is IslandState.LockScreen   -> Unit
             }
         }
     }
@@ -154,13 +159,13 @@ private fun ExpandedCall(state: IslandState.Call) {
             Column(Modifier.weight(1f)) {
                 Text(
                     state.callerName.ifBlank { "Unknown" },
-                    color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold
+                    color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     if (state.isOngoing) formatDuration(state.duration) else "Incoming call",
                     color = if (state.isOngoing) AccentGreen else TextSecondary,
-                    fontSize = 13.sp
+                    fontSize = 12.sp
                 )
             }
         }
@@ -183,7 +188,6 @@ private fun ExpandedNotification(state: IslandState.Notification) {
     val replyAction: android.app.Notification.Action? = remember(state.actions) {
         state.actions?.firstOrNull { it.remoteInputs?.isNotEmpty() == true }
     }
-    var showReplyDialog by remember { mutableStateOf(false) }
     var replyText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
@@ -234,8 +238,8 @@ private fun ExpandedNotification(state: IslandState.Notification) {
                     Text(
                         text = "$appLabel • $timeText",
                         color = Color(0xFFD1D5DB),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal,
                         letterSpacing = 0.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -246,7 +250,7 @@ private fun ExpandedNotification(state: IslandState.Notification) {
                     Text(
                         text = "CLEAR ALL",
                         color = Color(0xFF6B7280),
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
                             IslandNotificationListener.cancelAllPosted()
@@ -308,7 +312,7 @@ private fun ExpandedNotification(state: IslandState.Notification) {
                         color = Color.LightGray,
                         fontSize = 14.sp,
                         lineHeight = 18.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -317,141 +321,149 @@ private fun ExpandedNotification(state: IslandState.Notification) {
                         text = timeText,
                         color = Color.LightGray,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Normal
                     )
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(modifier = Modifier.weight(1f)) {
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .background(Color(0xFF1F2937), RoundedCornerShape(50))
-                            .clickable {
-                                val readAction = state.actions?.firstOrNull {
-                                    it.title?.toString()?.contains("READ", ignoreCase = true) == true
-                                }
-                                try {
-                                    readAction?.actionIntent?.send()
-                                } catch (_: Exception) {
-                                    // no-op
-                                }
-                                IslandNotificationListener.cancelByKey(state.notificationKey)
-                                NotificationRepository.markCurrentRead()
+            if (state.isReplying && replyAction != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = replyText,
+                        onValueChange = { replyText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Reply to ${state.title}...", color = Color.Gray, fontSize = 14.sp) },
+                        shape = RoundedCornerShape(24.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = AccentGreen,
+                            unfocusedBorderColor = Color.DarkGray,
+                            focusedContainerColor = Color(0xFF2C2C2E),
+                            unfocusedContainerColor = Color(0xFF1C1C1E)
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Send,
+                            keyboardType = KeyboardType.Text
+                        ),
+                        keyboardActions = KeyboardActions(onSend = {
+                            if (replyText.isNotBlank()) {
+                                executeDirectReply(context, replyAction, replyText)
+                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
+                                replyText = ""
+                                focusManager.clearFocus()
                             }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text("MARK AS READ", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .background(Color(0xFF1F2937), RoundedCornerShape(50))
-                            .clickable {
-                                val deleteAction = state.actions?.firstOrNull {
-                                    val title = it.title?.toString() ?: ""
-                                    title.contains("DELETE", ignoreCase = true) ||
-                                        title.contains("DISMISS", ignoreCase = true) ||
-                                        title.contains("CLEAR", ignoreCase = true)
-                                }
-                                try {
-                                    deleteAction?.actionIntent?.send()
-                                } catch (_: Exception) {
-                                    // no-op
-                                }
-                                IslandNotificationListener.cancelByKey(state.notificationKey)
-                                NotificationRepository.deleteCurrent()
+                        })
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            if (replyText.isNotBlank()) {
+                                executeDirectReply(context, replyAction, replyText)
+                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
+                                replyText = ""
+                                focusManager.clearFocus()
+                            } else {
+                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
                             }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                        }
                     ) {
-                        Text("DELETE", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = if (replyText.isBlank()) Icons.Default.Close else Icons.Default.Send,
+                            contentDescription = "Send",
+                            tint = if (replyText.isBlank()) Color.Gray else AccentGreen
+                        )
                     }
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFF1F2937), RoundedCornerShape(50))
-                            .clickable {
-                                if (replyAction != null) {
-                                    showReplyDialog = true
-                                } else {
-                                    val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
-                                    launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    if (launchIntent != null) {
-                                        context.startActivity(launchIntent)
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .background(Color(0xFF1F2937), RoundedCornerShape(50))
+                                .clickable {
+                                    val readAction = state.actions?.firstOrNull {
+                                        it.title?.toString()?.contains("READ", ignoreCase = true) == true
+                                    }
+                                    try {
+                                        readAction?.actionIntent?.send()
+                                    } catch (_: Exception) {
+                                        // no-op
+                                    }
+                                    IslandNotificationListener.cancelByKey(state.notificationKey)
+                                    NotificationRepository.markCurrentRead()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text("MARK AS READ", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .background(Color(0xFF1F2937), RoundedCornerShape(50))
+                                .clickable {
+                                    val deleteAction = state.actions?.firstOrNull {
+                                        val title = it.title?.toString() ?: ""
+                                        title.contains("DELETE", ignoreCase = true) ||
+                                                title.contains("DISMISS", ignoreCase = true) ||
+                                                title.contains("CLEAR", ignoreCase = true)
+                                    }
+                                    try {
+                                        deleteAction?.actionIntent?.send()
+                                    } catch (_: Exception) {
+                                        // no-op
+                                    }
+                                    IslandNotificationListener.cancelByKey(state.notificationKey)
+                                    NotificationRepository.deleteCurrent()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text("DELETE", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF1F2937), RoundedCornerShape(50))
+                                .clickable {
+                                    if (replyAction != null) {
+                                        IslandStateManager.getInstance().pushState(state.copy(isReplying = true))
+                                    } else {
+                                        val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
+                                        launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        if (launchIntent != null) {
+                                            context.startActivity(launchIntent)
+                                        }
                                     }
                                 }
-                            }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text("REPLY", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            val btnText = if (replyAction != null) "REPLY" else "OPEN"
+                            Text(btnText, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
-                }
 
-                Icon(
-                    imageVector = Icons.Default.Notifications,
-                    contentDescription = "Mute",
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clickable { }
-                )
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "Mute",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { }
+                    )
+                }
             }
         }
-    }
-
-    if (showReplyDialog && replyAction != null) {
-        AlertDialog(
-            onDismissRequest = {
-                showReplyDialog = false
-                replyText = ""
-            },
-            title = { Text("Reply") },
-            text = {
-                OutlinedTextField(
-                    value = replyText,
-                    onValueChange = { replyText = it },
-                    singleLine = true,
-                    placeholder = { Text("Type a reply") },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
-                        imeAction = ImeAction.Send
-                    ),
-                    keyboardActions = KeyboardActions(onSend = {
-                        if (replyText.isNotBlank()) {
-                            executeDirectReply(context, replyAction, replyText)
-                            replyText = ""
-                            showReplyDialog = false
-                            focusManager.clearFocus()
-                        }
-                    })
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (replyText.isNotBlank()) {
-                        executeDirectReply(context, replyAction, replyText)
-                        replyText = ""
-                        showReplyDialog = false
-                        focusManager.clearFocus()
-                    }
-                }) {
-                    Text("SEND")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showReplyDialog = false
-                    replyText = ""
-                }) {
-                    Text("CANCEL")
-                }
-            }
-        )
     }
 }
 
@@ -485,7 +497,7 @@ private fun ExpandedCharging(state: IslandState.Charging) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Battery", fontSize = 16.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Text("Battery", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
@@ -493,7 +505,7 @@ private fun ExpandedCharging(state: IslandState.Charging) {
                             .background(AccentOrange.copy(alpha = 0.2f))
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
-                        Text(methodLabel, color = AccentOrange, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Text(methodLabel, color = AccentOrange, fontSize = 12.sp, fontWeight = FontWeight.Normal)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -501,10 +513,10 @@ private fun ExpandedCharging(state: IslandState.Charging) {
                     if (state.isCharging) "Charging" else "Unplugged",
                     color = if (state.isCharging) AccentGreen else TextSecondary,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Normal
                 )
                 Spacer(Modifier.height(2.dp))
-                Text("${state.batteryLevel.coerceIn(0, 100)}%", color = TextSecondary, fontSize = 13.sp)
+                Text("${state.batteryLevel.coerceIn(0, 100)}%", color = TextSecondary, fontSize = 12.sp)
                 if (state.estimatedTimeMinutes > 0) {
                     Spacer(Modifier.height(2.dp))
                     Text("Full in ${state.estimatedTimeMinutes} min", color = TextSecondary, fontSize = 12.sp)
@@ -543,7 +555,7 @@ private fun ExpandedBluetooth(state: IslandState.Bluetooth) {
             Column(Modifier.weight(1f)) {
                 Text(
                     deviceName,
-                    color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(2.dp))
@@ -558,7 +570,7 @@ private fun ExpandedBluetooth(state: IslandState.Bluetooth) {
                     Text(
                         if (state.isConnected) "Connected" else "Disconnected",
                         color = statusColor,
-                        fontSize = 13.sp
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -569,8 +581,8 @@ private fun ExpandedBluetooth(state: IslandState.Bluetooth) {
                     Text(
                         "$level%",
                         color = batteryColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
                     )
                     IosBatteryIcon(
                         level = level,
@@ -591,7 +603,7 @@ private fun ExpandedWeather(state: IslandState.Weather) {
             Column(Modifier.weight(1f)) {
                 if (state.cityName.isNotBlank()) {
                     // cityName (not location) – WeatherInfo data class ke mutabik
-                    Text(state.cityName, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(state.cityName, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Normal)
                 }
                 Text("${state.temperature}°", color = TextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                 Text(

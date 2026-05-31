@@ -45,6 +45,11 @@ object MediaRepositoryBridge {
             ?: IslandLogger.w(TAG, "previous() called but no MediaRepository registered", null)
     }
 
+    fun launchApp() {
+        repository()?.launchMusicApp()
+            ?: IslandLogger.w(TAG, "launchApp() called but no MediaRepository registered", null)
+    }
+
     fun seekTo(positionFraction: Float) {
         val repo = repository()
         if (repo == null) {

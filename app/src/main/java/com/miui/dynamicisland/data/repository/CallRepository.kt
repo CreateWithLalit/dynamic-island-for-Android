@@ -235,4 +235,24 @@ class CallRepository(private val context: Context) {
         audioManager.isMicrophoneMute = !currentMute
         IslandLogger.d(TAG, "Microphone mute toggled: ${!currentMute}", null)
     }
+
+    fun toggleSpeaker() {
+        val currentSpeaker = audioManager.isSpeakerphoneOn
+        audioManager.isSpeakerphoneOn = !currentSpeaker
+        IslandLogger.d(TAG, "Speakerphone toggled: ${!currentSpeaker}", null)
+    }
+
+    fun isSpeakerOn(): Boolean = audioManager.isSpeakerphoneOn
+
+    fun isMuted(): Boolean = audioManager.isMicrophoneMute
+
+    fun launchDialerApp() {
+        try {
+            val intent = Intent(Intent.ACTION_DIAL)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Failed to launch dialer", e)
+        }
+    }
 }

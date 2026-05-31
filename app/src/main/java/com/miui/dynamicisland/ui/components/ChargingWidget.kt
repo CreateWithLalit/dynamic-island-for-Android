@@ -77,7 +77,8 @@ private fun ExpandedChargingWidget(state: IslandState.Charging, modifier: Modifi
             Text(
                 text = if (state.chargeMethod == IslandState.Charging.ChargeMethod.WIRELESS) "Wireless Charging" else "Wired Charging",
                 color = ChargingTextDim,
-                fontSize = 13.sp
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal
             )
             Text("${state.batteryLevel}% Charged", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
