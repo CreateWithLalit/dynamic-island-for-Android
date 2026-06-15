@@ -40,7 +40,8 @@ data class IslandDimensionsOverride(
     val width: Dp? = null,
     val height: Dp? = null,
     val cornerRadius: Dp? = null,
-    val expandedHeightScale: Float? = null
+    val expandedHeightScale: Float? = null,
+    val expandedWidthScale: Float? = null
 )
 
 private val Context.islandSizeDataStore: DataStore<Preferences> by preferencesDataStore(
@@ -122,12 +123,14 @@ open class IslandSizeManager(
                         val height = preferences[floatPreferencesKey("height_$stateName")]
                         val radius = preferences[floatPreferencesKey("radius_$stateName")]
                         val expHeightScale = preferences[floatPreferencesKey("exp_height_scale_$stateName")]
+                        val expWidthScale = preferences[floatPreferencesKey("exp_width_scale_$stateName")]
 
                         IslandDimensionsOverride(
                             width = width?.takeIf { it > 0f }?.dp,
                             height = height?.takeIf { it > 0f }?.dp,
                             cornerRadius = radius?.takeIf { it > 0f }?.dp,
-                            expandedHeightScale = expHeightScale?.takeIf { it > 0f }
+                            expandedHeightScale = expHeightScale?.takeIf { it > 0f },
+                            expandedWidthScale = expWidthScale?.takeIf { it > 0f }
                         )
                     }
                 }
@@ -142,6 +145,10 @@ open class IslandSizeManager(
 
     fun getExpandedHeightScaleForState(stateClass: KClass<out IslandState>): Float {
         return _overrides.value[stateClass]?.expandedHeightScale ?: _expandedHeightScale.value
+    }
+
+    fun getExpandedWidthScaleForState(stateClass: KClass<out IslandState>): Float {
+        return _overrides.value[stateClass]?.expandedWidthScale ?: _expandedWidthScale.value
     }
 
     fun getDefaultDimensionsForState(stateClass: KClass<out IslandState>): IslandDimensions {
@@ -175,7 +182,8 @@ open class IslandSizeManager(
         width: Float? = null,
         height: Float? = null,
         cornerRadius: Float? = null,
-        expandedHeightScale: Float? = null
+        expandedHeightScale: Float? = null,
+        expandedWidthScale: Float? = null
     ) {
         val stateName = stateClass.simpleName.orEmpty().lowercase()
         if (stateName.isBlank()) return
@@ -185,6 +193,7 @@ open class IslandSizeManager(
             val heightKey = floatPreferencesKey("height_$stateName")
             val radiusKey = floatPreferencesKey("radius_$stateName")
             val expHeightScaleKey = floatPreferencesKey("exp_height_scale_$stateName")
+            val expWidthScaleKey = floatPreferencesKey("exp_width_scale_$stateName")
 
             if (width != null) {
                 if (width > 0f) preferences[widthKey] = width else preferences.remove(widthKey)
@@ -197,6 +206,9 @@ open class IslandSizeManager(
             }
             if (expandedHeightScale != null) {
                 if (expandedHeightScale > 0f) preferences[expHeightScaleKey] = expandedHeightScale else preferences.remove(expHeightScaleKey)
+            }
+            if (expandedWidthScale != null) {
+                if (expandedWidthScale > 0f) preferences[expWidthScaleKey] = expandedWidthScale else preferences.remove(expWidthScaleKey)
             }
         }
     }
@@ -222,7 +234,7 @@ open class IslandSizeManager(
     }
 
     suspend fun clearOverridesForState(stateClass: KClass<out IslandState>) {
-        updateDimensions(stateClass, width = 0f, height = 0f, cornerRadius = 0f, expandedHeightScale = 0f)
+        updateDimensions(stateClass, width = 0f, height = 0f, cornerRadius = 0f, expandedHeightScale = 0f, expandedWidthScale = 0f)
     }
 
     suspend fun resetAllOverrides() {

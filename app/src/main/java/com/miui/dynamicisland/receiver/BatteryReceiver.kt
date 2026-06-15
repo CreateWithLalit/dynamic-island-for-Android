@@ -23,11 +23,23 @@ class BatteryReceiver : BroadcastReceiver() {
             "android.intent.action.BATTERY_CHANGED" -> {
                 val isCharging = isCharging(intent)
                 if (isCharging) {
+                    val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                    val currentMicroAmps = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                    val voltageMilliVolts = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0)
+                    
+                    // Rough wattage calculation or default to 33W as requested by user
+                    val calculatedWattage = if (voltageMilliVolts > 0 && currentMicroAmps > 0) {
+                        ((voltageMilliVolts.toLong() * currentMicroAmps) / 1_000_000_000L).toInt()
+                    } else 0
+                    
+                    val finalWattage = if (calculatedWattage > 10) calculatedWattage else 33
+
                     stateManager.pushState(
                         IslandState.Charging(
                             batteryLevel = getBatteryLevel(intent),
                             isCharging = true,
-                            chargeMethod = getChargeMethod(intent)
+                            chargeMethod = getChargeMethod(intent),
+                            wattage = finalWattage
                         )
                     )
                 } else if (action == "android.intent.action.BATTERY_CHANGED") {

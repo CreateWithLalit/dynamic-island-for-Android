@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.calibration.CalibrationActivity
 import com.miui.dynamicisland.settings.IslandSizeSettingsActivity
-import com.miui.dynamicisland.service.BluetoothIslandService
 import com.miui.dynamicisland.service.IslandForegroundService
 import com.miui.dynamicisland.ui.theme.DynamicIslandTheme
 import com.miui.dynamicisland.util.MIUIUtils
@@ -45,9 +44,7 @@ class MainActivity : ComponentActivity() {
                     PermissionDiagnosticScreen(
                         onCalibrationClick = { startActivity(Intent(this, CalibrationActivity::class.java)) },
                         onStartService = { startIslandService() },
-                        onStopService = { stopIslandService() },
-                        onStartBluetoothIsland = { startBluetoothIslandService() },
-                        onStopBluetoothIsland = { stopBluetoothIslandService() }
+                        onStopService = { stopIslandService() }
                     )
                 }
             }
@@ -67,29 +64,13 @@ class MainActivity : ComponentActivity() {
         }
         startForegroundService(intent)
     }
-
-    private fun startBluetoothIslandService() {
-        val intent = Intent(this, BluetoothIslandService::class.java).apply {
-            action = BluetoothIslandService.ACTION_START
-        }
-        startForegroundService(intent)
-    }
-
-    private fun stopBluetoothIslandService() {
-        val intent = Intent(this, BluetoothIslandService::class.java).apply {
-            action = BluetoothIslandService.ACTION_STOP
-        }
-        startForegroundService(intent)
-    }
 }
 
 @Composable
 fun PermissionDiagnosticScreen(
     onCalibrationClick: () -> Unit,
     onStartService: () -> Unit,
-    onStopService: () -> Unit,
-    onStartBluetoothIsland: () -> Unit,
-    onStopBluetoothIsland: () -> Unit
+    onStopService: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var hasOverlay by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
@@ -102,6 +83,8 @@ fun PermissionDiagnosticScreen(
     var isDefaultDialer by remember { mutableStateOf(false) }
     var useAccessibilityOverlay by remember { mutableStateOf(OverlaySettings.isAccessibilityOverlayEnabled(context)) }
     var allowLockScreenOverlay by remember { mutableStateOf(OverlaySettings.isLockScreenOverlayEnabled(context)) }
+    var isLandscapeEnabled by remember { mutableStateOf(OverlaySettings.isLandscapeEnabled(context)) }
+    var isFixNotchMode by remember { mutableStateOf(OverlaySettings.isFixNotchMode(context)) }
 
     val roleManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         context.getSystemService(android.app.role.RoleManager::class.java)
@@ -225,6 +208,32 @@ fun PermissionDiagnosticScreen(
             }
         )
 
+        SettingToggleCard(
+            title = "Show In Landscape",
+            description = "Enable or disable Dynamic Island in landscape mode.",
+            isEnabled = true,
+            isChecked = isLandscapeEnabled,
+            onCheckedChange = { enabled ->
+                isLandscapeEnabled = enabled
+                OverlaySettings.setLandscapeEnabled(context, enabled)
+                context.sendBroadcast(Intent(IslandForegroundService.ACTION_UPDATE_NOTCH_MODE))
+            }
+        )
+
+        if (isLandscapeEnabled) {
+            SettingToggleCard(
+                title = "Landscape: Fix Notch Mode",
+                description = "Keeps island fixed near camera. Hides non-essential items.",
+                isEnabled = true,
+                isChecked = isFixNotchMode,
+                onCheckedChange = { enabled ->
+                    isFixNotchMode = enabled
+                    OverlaySettings.setFixNotchMode(context, enabled)
+                    context.sendBroadcast(Intent(IslandForegroundService.ACTION_UPDATE_NOTCH_MODE))
+                }
+            )
+        }
+
         PermissionCard(
             title = "Phone State",
             description = "Needed to detect incoming and ongoing calls.",
@@ -338,24 +347,29 @@ fun PermissionDiagnosticScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Button(
-                onClick = onStartBluetoothIsland,
-                modifier = Modifier.weight(1f).height(56.dp),
-                enabled = hasOverlay && hasBluetoothConnect,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF30D158))
-            ) {
-                Text("Start Bluetooth Island", color = Color.Black, fontWeight = FontWeight.Bold)
-            }
-            Button(
-                onClick = onStopBluetoothIsland,
-                modifier = Modifier.weight(1f).height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30))
-            ) {
-                Text("Stop Bluetooth Island", color = Color.White)
-            }
+        // Timer Test Button
+        Button(
+            onClick = {
+                val stateManager = com.miui.dynamicisland.manager.IslandStateManager.getInstance()
+                stateManager.pushState(
+                    com.miui.dynamicisland.ui.states.IslandState.Timer(
+                        mode = com.miui.dynamicisland.ui.states.IslandState.Timer.TimerMode.Countdown(
+                            totalDurationMs = 60000,
+                            remainingMs = 45000,
+                            label = "Pizza"
+                        ),
+                        status = com.miui.dynamicisland.ui.states.IslandState.Timer.TimerStatus.Running
+                    )
+                )
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C1C1E))
+        ) {
+            Icon(Icons.Default.Timer, null, tint = Color.White)
+            Spacer(Modifier.width(12.dp))
+            Text("Test Timer Pill", color = Color.White)
         }
     }
 }

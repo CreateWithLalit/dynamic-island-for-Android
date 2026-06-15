@@ -14,3 +14,7 @@ enum class BluetoothSlot     { LEFT, RIGHT }
 enum class CallSlot          { LEFT, RIGHT, BOTTOM }
 enum class MediaSlot         { LEFT, RIGHT }
 enum class NotificationSlot  { LEFT, RIGHT }
+enum class NavigationSlot    { LEFT, RIGHT }
+enum class ProgressSlot      { LEFT, RIGHT }
+enum class ClipboardSlot     { LEFT, RIGHT }
+enum class TimerSlot         { LEFT, RIGHT }

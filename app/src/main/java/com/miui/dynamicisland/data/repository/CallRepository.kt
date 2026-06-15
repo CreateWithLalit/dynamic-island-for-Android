@@ -231,20 +231,40 @@ class CallRepository(private val context: Context) {
     }
 
     fun toggleMute() {
+        if (com.miui.dynamicisland.service.IslandCallService.getActiveCall() != null) {
+            val isCurrentlyMuted = com.miui.dynamicisland.service.IslandCallService.isMuted()
+            com.miui.dynamicisland.service.IslandCallService.setMute(!isCurrentlyMuted)
+            return
+        }
         val currentMute = audioManager.isMicrophoneMute
         audioManager.isMicrophoneMute = !currentMute
-        IslandLogger.d(TAG, "Microphone mute toggled: ${!currentMute}", null)
+        IslandLogger.d(TAG, "Microphone mute toggled (legacy): ${!currentMute}", null)
     }
 
     fun toggleSpeaker() {
+        if (com.miui.dynamicisland.service.IslandCallService.getActiveCall() != null) {
+            val isCurrentlySpeaker = com.miui.dynamicisland.service.IslandCallService.isSpeakerOn()
+            com.miui.dynamicisland.service.IslandCallService.setSpeaker(!isCurrentlySpeaker)
+            return
+        }
         val currentSpeaker = audioManager.isSpeakerphoneOn
         audioManager.isSpeakerphoneOn = !currentSpeaker
-        IslandLogger.d(TAG, "Speakerphone toggled: ${!currentSpeaker}", null)
+        IslandLogger.d(TAG, "Speakerphone toggled (legacy): ${!currentSpeaker}", null)
     }
 
-    fun isSpeakerOn(): Boolean = audioManager.isSpeakerphoneOn
+    fun isSpeakerOn(): Boolean {
+        if (com.miui.dynamicisland.service.IslandCallService.getActiveCall() != null) {
+            return com.miui.dynamicisland.service.IslandCallService.isSpeakerOn()
+        }
+        return audioManager.isSpeakerphoneOn
+    }
 
-    fun isMuted(): Boolean = audioManager.isMicrophoneMute
+    fun isMuted(): Boolean {
+        if (com.miui.dynamicisland.service.IslandCallService.getActiveCall() != null) {
+            return com.miui.dynamicisland.service.IslandCallService.isMuted()
+        }
+        return audioManager.isMicrophoneMute
+    }
 
     fun launchDialerApp() {
         try {

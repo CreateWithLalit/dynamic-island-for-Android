@@ -44,6 +44,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.automirrored.filled.*
 import com.miui.dynamicisland.ui.states.IslandState
 import java.util.Locale
 import java.text.DateFormat
@@ -51,9 +55,11 @@ import java.util.Date
 import androidx.compose.ui.platform.LocalContext
 import com.miui.dynamicisland.data.repository.NotificationRepository
 import android.content.Intent
+import android.content.Context
 import android.app.Notification
 import android.app.RemoteInput
 import android.os.Bundle
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -62,17 +68,22 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.miui.dynamicisland.service.IslandNotificationListener
 import com.miui.dynamicisland.manager.IslandStateManager
+import com.miui.dynamicisland.ui.timer.ExpandedTimerView
 
-private val ExpandedSurface  = Color(0xFF1C1C1E)
+private val ExpandedSurface  = Color(0xFF0A0A0A)
 private val ExpandedDivider  = Color(0xFF2C2C2E)
 private val TextPrimary      = Color.White
 private val TextSecondary    = Color(0xFF8E8E93)
@@ -115,14 +126,18 @@ fun IslandExpanded(
             when (state) {
                 is IslandState.Media        -> ExpandedMedia(state)
                 is IslandState.Call         -> ExpandedCall(state)
-                is IslandState.Notification -> ExpandedNotification(state)
+                is IslandState.Notification -> ExpandedNotification(state, onDismiss)
                 is IslandState.Charging     -> ExpandedCharging(state)
                 is IslandState.Bluetooth    -> ExpandedBluetooth(state)
                 is IslandState.Weather      -> ExpandedWeather(state)
+                is IslandState.Timer        -> ExpandedTimer(state)
                 is IslandState.Idle,
                 is IslandState.Silent,
                 is IslandState.Volume,
-                is IslandState.LockScreen   -> Unit
+                is IslandState.LockScreen,
+                is IslandState.Progress     -> Unit
+                is IslandState.Navigation   -> ExpandedNavigation(state)
+                is IslandState.Clipboard    -> ExpandedClipboard(state, onDismiss)
             }
         }
     }
@@ -131,8 +146,109 @@ fun IslandExpanded(
 // ── Individual expanded cards ─────────────────────────────────────────────────
 
 @Composable
-private fun ExpandedMedia(state: IslandState.Media) {
+private fun ExpandedClipboard(state: IslandState.Clipboard, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    
     ExpandedCard {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Recently Copied",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = state.text,
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = ExpandedDivider, thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                ClipboardActionButton(Icons.Default.Search, "Search") {
+                    handleClipboardAction(context, state.text, "search")
+                    IslandStateManager.getInstance().removeState(IslandState.Clipboard::class.java)
+                    onDismiss()
+                }
+                ClipboardActionButton(Icons.Default.Translate, "Translate") {
+                    handleClipboardAction(context, state.text, "translate")
+                    IslandStateManager.getInstance().removeState(IslandState.Clipboard::class.java)
+                    onDismiss()
+                }
+                ClipboardActionButton(Icons.Default.Share, "Share") {
+                    handleClipboardAction(context, state.text, "share")
+                    IslandStateManager.getInstance().removeState(IslandState.Clipboard::class.java)
+                    onDismiss()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClipboardActionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp)) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(ExpandedDivider)
+                .clickable { onClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, label, tint = TextPrimary, modifier = Modifier.size(24.dp))
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(label, color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+private fun handleClipboardAction(context: Context, text: String, action: String) {
+    val intent = when (action) {
+        "search" -> Intent(Intent.ACTION_WEB_SEARCH).apply { putExtra(android.app.SearchManager.QUERY, text) }
+        "translate" -> Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://translate.google.com/?sl=auto&tl=en&text=${android.net.Uri.encode(text)}&op=translate"))
+        "share" -> Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        else -> return
+    }
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        if (action == "share") {
+            val chooser = Intent.createChooser(intent, "Share via")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } else {
+            context.startActivity(intent)
+        }
+    } catch (_: Exception) {}
+}
+
+@Composable
+private fun ExpandedMedia(state: IslandState.Media) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation    = 24.dp,
+                shape        = RoundedCornerShape(38.dp),
+                ambientColor = Color.Black.copy(alpha = 0.6f),
+                spotColor    = Color.Black.copy(alpha = 0.6f)
+            )
+            .clip(RoundedCornerShape(38.dp))
+            .background(ExpandedSurface)
+    ) {
         MediaWidget(
             state = state,
             slot = MediaSlot.LEFT,
@@ -179,7 +295,7 @@ private fun ExpandedCall(state: IslandState.Call) {
 }
 
 @Composable
-private fun ExpandedNotification(state: IslandState.Notification) {
+private fun ExpandedNotification(state: IslandState.Notification, onDismiss: () -> Unit) {
     val timeText = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(state.postTime))
     val canNavigate = state.queueCount > 1
     val context = LocalContext.current
@@ -188,8 +304,8 @@ private fun ExpandedNotification(state: IslandState.Notification) {
     val replyAction: android.app.Notification.Action? = remember(state.actions) {
         state.actions?.firstOrNull { it.remoteInputs?.isNotEmpty() == true }
     }
-    var replyText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val view = LocalView.current
 
     ExpandedCard {
         Column(
@@ -327,59 +443,36 @@ private fun ExpandedNotification(state: IslandState.Notification) {
             }
 
             if (state.isReplying && replyAction != null) {
+                // Placeholder that launches ReplyActivity
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .height(48.dp)
+                        .background(Color(0xFF2C2C2E), RoundedCornerShape(24.dp))
+                        .clickable {
+                            onDismiss() // Dismiss the expanded overlay
+                            com.miui.dynamicisland.ui.ReplyActivity.launch(
+                                context,
+                                state.appName,
+                                state.notificationKey
+                            )
+                        }
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = replyText,
-                        onValueChange = { replyText = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("Reply to ${state.title}...", color = Color.Gray, fontSize = 14.sp) },
-                        shape = RoundedCornerShape(24.dp),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = AccentGreen,
-                            unfocusedBorderColor = Color.DarkGray,
-                            focusedContainerColor = Color(0xFF2C2C2E),
-                            unfocusedContainerColor = Color(0xFF1C1C1E)
-                        ),
-                        keyboardOptions = KeyboardOptions(
-                            imeAction = ImeAction.Send,
-                            keyboardType = KeyboardType.Text
-                        ),
-                        keyboardActions = KeyboardActions(onSend = {
-                            if (replyText.isNotBlank()) {
-                                executeDirectReply(context, replyAction, replyText)
-                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
-                                replyText = ""
-                                focusManager.clearFocus()
-                            }
-                        })
+                    Text(
+                        text = "Reply to ${state.title}...",
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = {
-                            if (replyText.isNotBlank()) {
-                                executeDirectReply(context, replyAction, replyText)
-                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
-                                replyText = ""
-                                focusManager.clearFocus()
-                            } else {
-                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (replyText.isBlank()) Icons.Default.Close else Icons.Default.Send,
-                            contentDescription = "Send",
-                            tint = if (replyText.isBlank()) Color.Gray else AccentGreen
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = Color(0xFF30D158),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             } else {
                 Row(
@@ -437,7 +530,12 @@ private fun ExpandedNotification(state: IslandState.Notification) {
                                 .background(Color(0xFF1F2937), RoundedCornerShape(50))
                                 .clickable {
                                     if (replyAction != null) {
-                                        IslandStateManager.getInstance().pushState(state.copy(isReplying = true))
+                                        onDismiss() // Dismiss the expanded overlay
+                                        com.miui.dynamicisland.ui.ReplyActivity.launch(
+                                            context,
+                                            state.appName,
+                                            state.notificationKey
+                                        )
                                     } else {
                                         val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
                                         launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -487,45 +585,39 @@ private fun executeDirectReply(context: android.content.Context, action: Notific
 @Composable
 private fun ExpandedCharging(state: IslandState.Charging) {
     val methodLabel = when (state.chargeMethod) {
-        IslandState.Charging.ChargeMethod.WIRELESS -> "Wireless"
-        IslandState.Charging.ChargeMethod.WIRED -> "Wired"
-        IslandState.Charging.ChargeMethod.NONE -> "Battery"
-        IslandState.Charging.ChargeMethod.UNKNOWN -> "Battery"
+        IslandState.Charging.ChargeMethod.WIRELESS -> "Wireless Charging"
+        IslandState.Charging.ChargeMethod.WIRED -> {
+            if (state.wattage > 0) "${state.wattage}W Turbo Charging" else "Wired Charging"
+        }
+        else -> "Battery"
     }
 
     ExpandedCard {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Battery", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(AccentOrange.copy(alpha = 0.2f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(methodLabel, color = AccentOrange, fontSize = 12.sp, fontWeight = FontWeight.Normal)
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
                 Text(
-                    if (state.isCharging) "Charging" else "Unplugged",
-                    color = if (state.isCharging) AccentGreen else TextSecondary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Normal
+                    text = methodLabel,
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
                 )
                 Spacer(Modifier.height(2.dp))
-                Text("${state.batteryLevel.coerceIn(0, 100)}%", color = TextSecondary, fontSize = 12.sp)
-                if (state.estimatedTimeMinutes > 0) {
-                    Spacer(Modifier.height(2.dp))
-                    Text("Full in ${state.estimatedTimeMinutes} min", color = TextSecondary, fontSize = 12.sp)
-                }
+                Text(
+                    text = "${state.batteryLevel}% Charged",
+                    color = TextPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            IosBatteryIcon(
+
+            LiquidBatteryIcon(
                 level = state.batteryLevel.coerceIn(0, 100),
                 isCharging = state.isCharging,
-                modifier = Modifier.size(width = 48.dp, height = 24.dp)
+                modifier = Modifier.size(width = 60.dp, height = 30.dp)
             )
         }
     }
@@ -533,66 +625,148 @@ private fun ExpandedCharging(state: IslandState.Charging) {
 
 @Composable
 private fun ExpandedBluetooth(state: IslandState.Bluetooth) {
-    val deviceName = state.deviceName.ifBlank { "Bluetooth" }
-    val isEarbuds = deviceName.lowercase(Locale.US).let { name ->
-        name.contains("airpod") || name.contains("earbud") || name.contains("buds") || name.contains("pods")
-    }
-    val statusColor = if (state.isConnected) AccentGreen else TextSecondary
-
     ExpandedCard {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            if (isEarbuds) {
-                AirPodsIcon(modifier = Modifier.size(24.dp), tint = TextPrimary)
-            } else {
-                Icon(
-                    if (state.isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
-                    "Bluetooth",
-                    Modifier.size(24.dp),
-                    TextPrimary
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    deviceName,
-                    color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
+        BluetoothExpandedWidget(state = state)
+    }
+}
+
+@Composable
+private fun ExpandedNavigation(state: IslandState.Navigation) {
+    ExpandedCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(statusColor)
+                    Icon(
+                        imageVector = Icons.Default.Place,
+                        contentDescription = null,
+                        tint = Color(0xFF4285F4),
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        if (state.isConnected) "Connected" else "Disconnected",
-                        color = statusColor,
-                        fontSize = 12.sp
+                        text = state.street.ifBlank { "Navigation" },
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
-            state.batteryLevel?.let { raw ->
-                val level = raw.coerceIn(0, 100)
-                val batteryColor = if (level > 20) AccentGreen else Color(0xFFFF3B30)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (state.toward.isNotBlank()) {
                     Text(
-                        "$level%",
-                        color = batteryColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Normal
+                        text = "toward ${state.toward}",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    IosBatteryIcon(
-                        level = level,
-                        isCharging = false,
-                        modifier = Modifier.size(width = 24.dp, height = 12.dp),
-                        color = batteryColor
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Green Action Button
+                    Row(
+                        modifier = Modifier
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF34C759))
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = getDirectionIcon(state.direction),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = state.distance,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Speaker Button
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF2C2C2E))
+                            .clickable { /* Toggle Mute */ },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (state.isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Exit Button
+                    Box(
+                        modifier = Modifier
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFFFF3B30))
+                            .clickable { /* Exit Nav */ }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Exit",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Map Snippet
+            Box(
+                modifier = Modifier
+                    .size(width = 100.dp, height = 80.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1C1C1E)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (state.mapSnippet != null) {
+                    Image(
+                        bitmap = state.mapSnippet.asImageBitmap(),
+                        contentDescription = "Map",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(32.dp)
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ExpandedTimer(state: IslandState.Timer) {
+    ExpandedCard {
+        ExpandedTimerView(state)
     }
 }
 
@@ -630,11 +804,11 @@ private fun ExpandedCard(content: @Composable ColumnScope.() -> Unit) {
             .fillMaxWidth()
             .shadow(
                 elevation    = 24.dp,
-                shape        = RoundedCornerShape(26.dp),
+                shape        = RoundedCornerShape(38.dp),
                 ambientColor = Color.Black.copy(alpha = 0.6f),
                 spotColor    = Color.Black.copy(alpha = 0.6f)
             )
-            .clip(RoundedCornerShape(26.dp))
+            .clip(RoundedCornerShape(38.dp))
             .background(ExpandedSurface)
             .padding(16.dp),
         content = content
@@ -642,6 +816,20 @@ private fun ExpandedCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
+
+/** Map OpenWeatherMap icon codes → safe Material Icons (extended dependency present) */
+private fun getDirectionIcon(direction: IslandState.Navigation.Direction): ImageVector = when (direction) {
+    IslandState.Navigation.Direction.LEFT         -> Icons.AutoMirrored.Filled.ArrowBack
+    IslandState.Navigation.Direction.RIGHT        -> Icons.AutoMirrored.Filled.ArrowForward
+    IslandState.Navigation.Direction.STRAIGHT     -> Icons.Default.ArrowUpward
+    IslandState.Navigation.Direction.SLIGHT_LEFT  -> Icons.AutoMirrored.Filled.Reply // Placeholder
+    IslandState.Navigation.Direction.SLIGHT_RIGHT -> Icons.AutoMirrored.Filled.Reply // Placeholder
+    IslandState.Navigation.Direction.U_TURN       -> Icons.AutoMirrored.Filled.Reply
+    IslandState.Navigation.Direction.MERGE        -> Icons.Default.Merge
+    IslandState.Navigation.Direction.EXIT         -> Icons.Default.ExitToApp
+    IslandState.Navigation.Direction.ARRIVE       -> Icons.Default.CheckCircle
+    else                                          -> Icons.Default.Navigation
+}
 
 /** Map OpenWeatherMap icon codes → safe Material Icons (extended dependency present) */
 private fun getWeatherIconFromCode(iconCode: String): ImageVector = when (iconCode) {

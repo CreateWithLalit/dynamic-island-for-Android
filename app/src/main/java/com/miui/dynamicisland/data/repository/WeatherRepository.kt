@@ -86,6 +86,12 @@ class WeatherRepository(private val context: Context) {
             }
 
             val location = getLastKnownNetworkLocation()
+            if (location == null) {
+                IslandLogger.w(TAG, "Location is null, using default city: $DEFAULT_CITY", null)
+            } else {
+                IslandLogger.d(TAG, "Fetching weather for coords: ${location.latitude}, ${location.longitude}", null)
+            }
+
             val weatherResponse = if (location != null) {
                 api.getWeatherByCoords(location.latitude, location.longitude, apiKey)
             } else {
@@ -112,13 +118,25 @@ class WeatherRepository(private val context: Context) {
             context,
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        
+        val hasFinePermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-        if (!hasCoarsePermission) return null
+        if (!hasCoarsePermission && !hasFinePermission) {
+            IslandLogger.w(TAG, "Location permissions not granted for weather", null)
+            return null
+        }
 
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
         return runCatching {
-            manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            // Try GPS first for accuracy, then Network, then Passive
+            manager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
                 ?: manager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        }.onFailure {
+            IslandLogger.e(TAG, "Error getting last known location: ${it.message}", it)
         }.getOrNull()
     }
 
@@ -127,10 +145,27 @@ class WeatherRepository(private val context: Context) {
         forecastResponse: com.miui.dynamicisland.data.api.ForecastResponse
     ): WeatherInfo {
         val weather = weatherResponse.weather.firstOrNull()
+        val precip = weatherResponse.rain?.oneHour ?: 0.0
+        
+        // Override logic for Rain detection
+        var displayCondition = weather?.description?.replaceFirstChar { it.uppercase() } ?: "Unknown"
+        var displayIcon = weather?.icon ?: "01d"
+        
+        if (precip > 0.0) {
+            displayCondition = "Light Rain"
+            if (precip > 2.0) displayCondition = "Rain"
+            if (precip > 5.0) displayCondition = "Heavy Rain"
+            
+            // OWM Rain Icons: 09d (shower rain), 10d (rain)
+            if (!displayIcon.startsWith("09") && !displayIcon.startsWith("10")) {
+                displayIcon = "10d" // Force a rain icon if OWM says it's cloudy but rain > 0
+            }
+        }
+
         return WeatherInfo(
             temperature = weatherResponse.main.temp.toInt(),
-            condition = weather?.description?.replaceFirstChar { it.uppercase() } ?: "Unknown",
-            iconCode = weather?.icon ?: "01d",
+            condition = displayCondition,
+            iconCode = displayIcon,
             cityName = weatherResponse.name,
             lastUpdated = System.currentTimeMillis(),
             sunrise = weatherResponse.sys.sunrise,
@@ -138,6 +173,7 @@ class WeatherRepository(private val context: Context) {
             windSpeed = weatherResponse.wind.speed,
             humidity = weatherResponse.main.humidity,
             visibility = weatherResponse.visibility,
+            precipitation = precip,
             hourlyForecast = forecastResponse.list.take(8).map { item ->
                 com.miui.dynamicisland.data.model.HourlyWeather(
                     time = item.dt * 1000,

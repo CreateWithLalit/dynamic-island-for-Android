@@ -11,6 +11,7 @@ data class WeatherInfo(
     val windSpeed: Double = 0.0,
     val humidity: Int = 0,
     val visibility: Int = 0,
+    val precipitation: Double = 0.0,
     val hourlyForecast: List<HourlyWeather> = emptyList(),
     val dailyForecast: List<DailyWeather> = emptyList()
 )

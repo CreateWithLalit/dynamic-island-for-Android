@@ -43,7 +43,8 @@ data class WeatherResponse(
     val name: String,
     val sys: Sys,
     val wind: Wind,
-    val visibility: Int
+    val visibility: Int,
+    val rain: Rain? = null
 ) {
     data class Main(
         val temp: Double,
@@ -55,6 +56,9 @@ data class WeatherResponse(
         val sunset: Long
     )
     data class Wind(val speed: Double)
+    data class Rain(
+        @com.google.gson.annotations.SerializedName("1h") val oneHour: Double? = 0.0
+    )
 }
 
 data class ForecastResponse(

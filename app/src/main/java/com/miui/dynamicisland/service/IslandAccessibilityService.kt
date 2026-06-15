@@ -152,6 +152,8 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
     private var overlayView: ComposeView? = null
     private var overlayParams: WindowManager.LayoutParams? = null
     private var screenReceiver: BroadcastReceiver? = null
+    private var clipboardManager: android.content.ClipboardManager? = null
+    private var clipboardListener: android.content.ClipboardManager.OnPrimaryClipChangedListener? = null
     private var overlayJob: Job? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -164,6 +166,9 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
         savedStateRegistryController.performRestore(null)
         calibrationManager = CalibrationManager(this)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        
+        setupClipboardListener()
+
         updateOverlayVisibility()
         registerScreenReceiver()
 
@@ -199,6 +204,12 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
     }
 
     private fun handleNotificationEvent(event: AccessibilityEvent) {
+        // If the specialized NotificationListenerService is running, ignore accessibility notifications
+        // to avoid duplicates and get better data quality from SBNs.
+        if (IslandNotificationListener.isServiceConnected()) {
+            return
+        }
+
         val packageName = event.packageName?.toString() ?: return
 
         // Ignore system apps
@@ -254,6 +265,7 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
     override fun onDestroy() {
         detachOverlay()
         unregisterScreenReceiver()
+        clipboardListener?.let { clipboardManager?.removePrimaryClipChangedListener(it) }
         serviceViewModelStore.clear()
         super.onDestroy()
     }
@@ -292,7 +304,8 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
                     state = currentState,
                     calibration = calibration,
                     onMediaAction = { handleMediaAction(it) },
-                    onCallAction = { handleCallAction(it) }
+                    onCallAction = { handleCallAction(it) },
+                    onClipboardAction = { handleClipboardAction(it) }
                 )
             }
         }
@@ -408,6 +421,64 @@ class IslandAccessibilityService : AccessibilityService(), LifecycleOwner, ViewM
             CallAction.ToggleSpeaker -> callRepo.toggleSpeaker()
             CallAction.LaunchApp -> callRepo.launchDialerApp()
         }
+    }
+
+    private fun handleClipboardAction(clipboardAction: com.miui.dynamicisland.ui.island.ClipboardAction) {
+        val state = stateManager.currentState.value as? IslandState.Clipboard ?: return
+        val text = state.text
+        
+        stateManager.collapseCurrentState()
+        stateManager.removeState(IslandState.Clipboard::class.java)
+
+        when (clipboardAction) {
+            com.miui.dynamicisland.ui.island.ClipboardAction.Search -> {
+                val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
+                    putExtra(android.app.SearchManager.QUERY, text)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    val browserIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=$text")).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(browserIntent)
+                }
+            }
+            com.miui.dynamicisland.ui.island.ClipboardAction.Translate -> {
+                val intent = Intent().apply {
+                    action = Intent.ACTION_VIEW
+                    data = android.net.Uri.parse("https://translate.google.com/?sl=auto&tl=en&text=${android.net.Uri.encode(text)}&op=translate")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            }
+            com.miui.dynamicisland.ui.island.ClipboardAction.Share -> {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val shareIntent = Intent.createChooser(intent, "Share via").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(shareIntent)
+            }
+        }
+    }
+
+    private fun setupClipboardListener() {
+        clipboardManager = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboardListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+            val clip = clipboardManager?.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val text = clip.getItemAt(0).text?.toString()
+                if (!text.isNullOrBlank()) {
+                    stateManager.pushState(IslandState.Clipboard(text))
+                }
+            }
+        }
+        clipboardManager?.addPrimaryClipChangedListener(clipboardListener)
     }
 
     private fun registerScreenReceiver() {

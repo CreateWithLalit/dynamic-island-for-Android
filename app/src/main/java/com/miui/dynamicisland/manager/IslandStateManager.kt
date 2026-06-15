@@ -40,13 +40,30 @@ class IslandStateManager private constructor() {
     private val _currentState = MutableStateFlow<IslandState>(IslandState.Idle)
     val currentState: StateFlow<IslandState> = _currentState.asStateFlow()
 
+    private val _inputState = MutableStateFlow<com.miui.dynamicisland.ui.states.IslandInputState>(com.miui.dynamicisland.ui.states.IslandInputState.Normal)
+    val inputState: StateFlow<com.miui.dynamicisland.ui.states.IslandInputState> = _inputState.asStateFlow()
+
     private val _allStates = MutableStateFlow<List<IslandState>>(emptyList())
     val allStates: StateFlow<List<IslandState>> = _allStates.asStateFlow()
 
     private val _currentIndex = MutableStateFlow(0)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
+    private val _isLandscapeMode = MutableStateFlow(false)
+    val isLandscapeMode: StateFlow<Boolean> = _isLandscapeMode.asStateFlow()
+
+    private val _isFixNotchMode = MutableStateFlow(true)
+    val isFixNotchMode: StateFlow<Boolean> = _isFixNotchMode.asStateFlow()
+
     private var sequenceCounter = 0L
+
+    fun setLandscapeMode(isLandscape: Boolean) {
+        _isLandscapeMode.value = isLandscape
+    }
+
+    fun setFixNotchMode(enabled: Boolean) {
+        _isFixNotchMode.value = enabled
+    }
 
     fun pushState(state: IslandState) {
         val key = state::class
@@ -127,6 +144,10 @@ class IslandStateManager private constructor() {
         timeoutJobs.clear()
         activeStates.clear()
         _currentState.value = IslandState.Idle
+    }
+
+    fun setInputState(state: com.miui.dynamicisland.ui.states.IslandInputState) {
+        _inputState.value = state
     }
 
     private fun updateCurrentState() {

@@ -6,16 +6,20 @@ import android.graphics.drawable.Drawable
 import android.media.session.MediaSessionManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.miui.dynamicisland.data.repository.BluetoothBatteryNotificationParser
 import com.miui.dynamicisland.data.repository.MediaRepositoryBridge
 import com.miui.dynamicisland.data.repository.NotificationData
 import com.miui.dynamicisland.data.repository.NotificationRepository
+import com.miui.dynamicisland.util.IconUtils
 import com.miui.dynamicisland.util.IslandLogger
 
 class IslandNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val TAG = "IslandNotificationListener"
-        @Volatile private var instance: IslandNotificationListener? = null
+        @Volatile internal var instance: IslandNotificationListener? = null
+
+        fun isServiceConnected(): Boolean = instance != null
 
         fun cancelByKey(notificationKey: String?) {
             if (notificationKey.isNullOrBlank()) return
@@ -39,8 +43,7 @@ class IslandNotificationListener : NotificationListenerService() {
         "android",
         "com.android.systemui",
         "com.miui.dynamicisland",
-        "com.android.settings",
-        "com.google.android.gms" // Ignore Google Play Services background alerts
+        "com.android.settings"
     )
 
     override fun onListenerConnected() {
@@ -72,9 +75,47 @@ class IslandNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName
+        val extras = sbn.notification.extras
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.joinToString(" | ") { it.toString() }
+            .orEmpty()
+
+        IslandLogger.d(TAG, """
+            [DEBUG_BT] Received Notification:
+            - Package: $packageName
+            - Title: $title
+            - Text: $text
+            - BigText: $bigText
+            - Lines: $lines
+        """.trimIndent(), null)
+
+        val parserResult = BluetoothBatteryNotificationParser.tryUpdateFromNotification(sbn)
+        IslandLogger.d(TAG, "[DEBUG_BT] Parser executed for $packageName. Result: $parserResult", null)
+
+        if (parserResult) {
+            IslandLogger.d(TAG, "[FLOW] Bluetooth battery update handled by parser, skipping normal notification", null)
+            return
+        }
+
+        val isBluetoothSpecial = title.contains("Buds", ignoreCase = true) || 
+                                 text.contains("connecting", ignoreCase = true) ||
+                                 text.contains("pair", ignoreCase = true) ||
+                                 text.contains("connected", ignoreCase = true) ||
+                                 title.contains("Realme", ignoreCase = true) ||
+                                 packageName.contains("bluetooth", ignoreCase = true) ||
+                                 packageName == "com.google.android.gms"
+
+        val isNavigationSpecial = packageName == "com.google.android.apps.maps" || 
+                                 sbn.notification.category == Notification.CATEGORY_NAVIGATION
 
         // 1. Refined Blacklist & System Noise Filter
-        if (packageName in ignoredPackages) return
+        if (packageName in ignoredPackages && !isBluetoothSpecial && !isNavigationSpecial) {
+            IslandLogger.d(TAG, "[FLOW] Notification from $packageName ignored (blacklisted)", null)
+            return
+        }
         
         // Filter out summary notifications and ongoing ones
         val isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
@@ -83,11 +124,11 @@ class IslandNotificationListener : NotificationListenerService() {
             return
         }
         
-        if (sbn.isOngoing || (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT != 0)) return
-        if (sbn.notification.extras.containsKey("android.mediaSession")) return
+        if (!isBluetoothSpecial && !isNavigationSpecial) {
+            if (sbn.isOngoing || (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT != 0)) return
+            if (sbn.notification.extras.containsKey("android.mediaSession")) return
+        }
 
-        val extras = sbn.notification.extras
-        
         // Better Sender Resolution for Messaging Apps
         var senderTitle = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
@@ -179,20 +220,28 @@ class IslandNotificationListener : NotificationListenerService() {
         val largeBitmap: android.graphics.Bitmap? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             extras.getParcelable(Notification.EXTRA_LARGE_ICON, android.graphics.Bitmap::class.java)
                 ?: extras.getParcelable(Notification.EXTRA_LARGE_ICON_BIG, android.graphics.Bitmap::class.java)
+                ?: extras.getParcelable(Notification.EXTRA_PICTURE, android.graphics.Bitmap::class.java)
         } else {
             @Suppress("DEPRECATION")
             (extras.getParcelable(Notification.EXTRA_LARGE_ICON) as? android.graphics.Bitmap)
                 ?: (extras.getParcelable(Notification.EXTRA_LARGE_ICON_BIG) as? android.graphics.Bitmap)
+                ?: (extras.getParcelable(Notification.EXTRA_PICTURE) as? android.graphics.Bitmap)
         } ?: sbn.notification.largeIcon
 
-        val appIconDrawable: Drawable? = try {
+        val largeIconDrawable: Drawable? = try {
             when {
                 profileIcon != null -> profileIcon.loadDrawable(this)
                 largeBitmap != null -> android.graphics.drawable.BitmapDrawable(resources, largeBitmap)
-                else -> packageManager.getApplicationIcon(packageName)
+                else -> null
             }
         } catch (e: Exception) {
-            IslandLogger.d(TAG, "Icon fetch failed for $packageName", e)
+            null
+        }
+
+        val appIconDrawable: Drawable? = try {
+            packageManager.getApplicationIcon(packageName)
+        } catch (e: Exception) {
+            IslandLogger.d(TAG, "App icon fetch failed for $packageName", e)
             null
         }
 
@@ -215,6 +264,7 @@ class IslandNotificationListener : NotificationListenerService() {
             content = messageBody,
             packageName = packageName,
             appIcon = appIconDrawable,
+            largeIcon = largeIconDrawable,
             timestamp = sbn.postTime,
             contentIntent = sbn.notification.contentIntent,
             actions = sbn.notification.actions,
@@ -224,10 +274,151 @@ class IslandNotificationListener : NotificationListenerService() {
         )
 
         IslandLogger.d(TAG, "Posting high-res notification from: $packageName", null)
+        
+        // 4. Special Case: Google Maps Navigation
+        if (isNavigationSpecial) {
+            val direction = parseDirection(title, text)
+            if (direction != com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.UNKNOWN) {
+                val distance = extractDistance(title) ?: extractDistance(text) ?: ""
+                val street = extractStreet(title) ?: extractStreet(text) ?: text
+                
+                // Try to parse "Then" instruction
+                val nextDir = parseNextDirection(text) ?: parseNextDirection(bigText)
+                
+                val mapBitmap = (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    extras.getParcelable(Notification.EXTRA_PICTURE, android.graphics.Bitmap::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    extras.getParcelable(Notification.EXTRA_PICTURE) as? android.graphics.Bitmap
+                }) ?: largeBitmap ?: largeIconDrawable?.let {
+                    IconUtils.drawableToBitmap(it, 320, 320)
+                }
+
+                com.miui.dynamicisland.manager.IslandStateManager.getInstance().pushState(
+                    com.miui.dynamicisland.ui.states.IslandState.Navigation(
+                        direction = direction,
+                        distance = distance,
+                        instruction = title,
+                        street = street,
+                        toward = extractToward(text) ?: "",
+                        nextDirection = nextDir,
+                        appIcon = appIconDrawable,
+                        isUrgent = distance.contains("m") && (distance.filter { it.isDigit() }.toIntOrNull() ?: 500) < 150,
+                        mapSnippet = mapBitmap,
+                        packageName = packageName
+                    )
+                )
+            }
+        }
+
         NotificationRepository.postNotification(notificationData)
+
+        // 5. Special Case: Progress (Downloads/Uploads)
+        val progressMax = extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0)
+        val progressCurrent = extras.getInt(Notification.EXTRA_PROGRESS, 0)
+        val isIndeterminate = extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE)
+
+        if ((progressMax > 0 || packageName == "com.android.vending") && !isIndeterminate) {
+            val progressFraction = if (progressMax > 0) progressCurrent.toFloat() / progressMax else {
+                parseProgressFromText(text) ?: parseProgressFromText(title) ?: 0f
+            }
+            
+            if (progressFraction > 0f && progressFraction < 1f) {
+                val remainingTime = extractRemainingTime(text) ?: extractRemainingTime(title) ?: ""
+                com.miui.dynamicisland.manager.IslandStateManager.getInstance().pushState(
+                    com.miui.dynamicisland.ui.states.IslandState.Progress(
+                        appName = realAppName,
+                        title = if (title.isNotBlank()) title else realAppName,
+                        progress = progressFraction,
+                        remainingTime = remainingTime,
+                        isDownload = !packageName.contains("drive") && !packageName.contains("upload"),
+                        packageName = packageName
+                    )
+                )
+            } else if (progressFraction >= 1f || text.lowercase().contains("complete") || text.lowercase().contains("downloaded")) {
+                com.miui.dynamicisland.manager.IslandStateManager.getInstance().removeState(com.miui.dynamicisland.ui.states.IslandState.Progress::class.java)
+            }
+        }
+    }
+
+    private fun parseProgressFromText(input: String): Float? {
+        val regex = Regex("(\\d+)%")
+        return regex.find(input)?.groupValues?.get(1)?.toFloatOrNull()?.div(100f)
+    }
+
+    private fun extractRemainingTime(input: String): String? {
+        val regex = Regex("(\\d+\\s*(min|sec|hr|h|m|s)\\s*(remaining|left))", RegexOption.IGNORE_CASE)
+        return regex.find(input)?.value ?: Regex("(\\d+:\\d+\\s*(left|remaining))").find(input)?.value
+    }
+
+    private fun parseDirection(title: String, text: String): com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction {
+        val combined = "$title $text".lowercase()
+        return when {
+            combined.contains("slight left") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.SLIGHT_LEFT
+            combined.contains("slight right") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.SLIGHT_RIGHT
+            combined.contains("left") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.LEFT
+            combined.contains("right") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.RIGHT
+            combined.contains("u-turn") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.U_TURN
+            combined.contains("merge") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.MERGE
+            combined.contains("exit") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.EXIT
+            combined.contains("arrive") || combined.contains("destination") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.ARRIVE
+            combined.contains("straight") || combined.contains("keep") || combined.contains("ahead") || combined.contains("onto") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.STRAIGHT
+            else -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.UNKNOWN
+        }
+    }
+
+    private fun parseNextDirection(text: String): com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction? {
+        val lower = text.lowercase()
+        val thenIndex = lower.indexOf("then")
+        if (thenIndex == -1) return null
+        val thenText = lower.substring(thenIndex)
+        return when {
+            thenText.contains("slight left") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.SLIGHT_LEFT
+            thenText.contains("slight right") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.SLIGHT_RIGHT
+            thenText.contains("left") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.LEFT
+            thenText.contains("right") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.RIGHT
+            thenText.contains("u-turn") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.U_TURN
+            thenText.contains("straight") -> com.miui.dynamicisland.ui.states.IslandState.Navigation.Direction.STRAIGHT
+            else -> null
+        }
+    }
+
+    private fun extractDistance(input: String): String? {
+        val regex = Regex("(\\d+[.,]?\\d*\\s*(m|km|ft|mi))", RegexOption.IGNORE_CASE)
+        return regex.find(input)?.value
+    }
+
+    private fun extractStreet(input: String): String? {
+        if (input.isBlank()) return null
+        
+        // Case: "Street Name • toward ..."
+        if (input.contains("•")) {
+            return input.split("•")[0].trim()
+        }
+        
+        // Case: "Street Name toward ..."
+        if (input.contains(" toward ", ignoreCase = true)) {
+            val parts = input.split(Regex(" toward ", RegexOption.IGNORE_CASE))
+            if (parts[0].isNotBlank()) return parts[0].trim()
+        }
+
+        // Regex: "onto (.+)" or "toward (.+)"
+        val ontoRegex = Regex("onto\\s+(.+)", RegexOption.IGNORE_CASE)
+        ontoRegex.find(input)?.groupValues?.get(1)?.let { return it.trim() }
+        
+        return null
+    }
+
+    private fun extractToward(input: String): String? {
+        val towardRegex = Regex("toward\\s+(.+)", RegexOption.IGNORE_CASE)
+        return towardRegex.find(input)?.groupValues?.get(1)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (sbn.packageName == "com.google.android.apps.maps" || sbn.notification.category == Notification.CATEGORY_NAVIGATION) {
+            com.miui.dynamicisland.manager.IslandStateManager.getInstance().removeState(com.miui.dynamicisland.ui.states.IslandState.Navigation::class.java)
+        }
+
         // We no longer remove notifications from the island when the system removes them.
         // This allows the island to act as a persistent tray until the user manually clears it.
         IslandLogger.d(TAG, "System notification removed, keeping in Island: ${sbn.packageName}", null)

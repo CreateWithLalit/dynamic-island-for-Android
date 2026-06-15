@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -44,6 +45,8 @@ fun CutoutSafeIslandShell(
     bottomPanelWidth: Dp = width,
     bottomCornerRadius: Dp = 16.dp,
     bottomPanelSpacing: Dp = 4.dp,
+    progress: Float? = null,
+    progressColor: Color = Color(0xFF0A84FF).copy(alpha = 0.3f)
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -58,6 +61,17 @@ fun CutoutSafeIslandShell(
                 .background(islandColor),
             contentAlignment = Alignment.Center
         ) {
+            // Background Progress Fill
+            if (progress != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(progressColor)
+                        .align(Alignment.CenterStart)
+                )
+            }
+
             if (centerContent != null) {
                 Box(
                     modifier = Modifier
@@ -116,11 +130,13 @@ fun AnimatedCutoutSafeIslandShell(
     rightContent: @Composable () -> Unit = {},
     centerContent: (@Composable () -> Unit)? = null,
     bottomContent: (@Composable () -> Unit)? = null,
+    progress: Float? = null,
+    progressColor: Color = Color(0xFF0A84FF).copy(alpha = 0.3f)
 ) {
     // Explicit spring<Dp> to fix inference error
     val sizeSpring = spring<Dp>(
         dampingRatio = Spring.DampingRatioLowBouncy,
-        stiffness = Spring.StiffnessLow
+        stiffness = Spring.StiffnessMediumLow
     )
     val radiusSpring = spring<Dp>(
         dampingRatio = Spring.DampingRatioNoBouncy,
@@ -163,5 +179,7 @@ fun AnimatedCutoutSafeIslandShell(
         bottomPanelWidth = bottomPanelWidth,
         bottomCornerRadius = bottomCornerRadius,
         bottomPanelSpacing = bottomPanelSpacing,
+        progress = progress,
+        progressColor = progressColor
     )
 }

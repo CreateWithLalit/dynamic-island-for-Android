@@ -138,19 +138,7 @@ private fun NotificationExpandedContent(
     }
     
     val isReplying = state.isReplying
-    var replyText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val focusRequester = remember { FocusRequester() }
-    
-    LaunchedEffect(isReplying) {
-        if (isReplying) {
-            // Delay slightly to wait for window focus flags to apply
-            kotlinx.coroutines.delay(150)
-            focusRequester.requestFocus()
-            keyboardController?.show()
-        }
-    }
 
     val density = LocalDensity.current
     val swipeThresholdPx = remember(density) { with(density) { 24.dp.toPx() } }
@@ -248,8 +236,8 @@ private fun NotificationExpandedContent(
                         contentDescription = "Cancel",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp).clickable { 
+                            IslandStateManager.getInstance().setInputState(com.miui.dynamicisland.ui.states.IslandInputState.Normal)
                             IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
-                            replyText = ""
                             focusManager.clearFocus()
                         }
                     )
@@ -257,7 +245,7 @@ private fun NotificationExpandedContent(
             }
         }
 
-        // Animated Content for Title and Content OR Reply Field
+        // Animated Content for Title and Content OR Reply Field (Now a placeholder that launches Activity)
         AnimatedContent(
             targetState = isReplying,
             transitionSpec = {
@@ -266,60 +254,35 @@ private fun NotificationExpandedContent(
             label = "reply_field_anim"
         ) { replying ->
             if (replying && replyAction != null) {
-                // IN-LINE REPLY FIELD
+                // Placeholder that looks like an input field but launches ReplyActivity
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .background(Color(0xFF2C2C2E), RoundedCornerShape(22.dp))
+                        .clickable {
+                            IslandStateManager.getInstance().collapseCurrentState()
+                            com.miui.dynamicisland.ui.ReplyActivity.launch(
+                                context,
+                                state.appName,
+                                state.notificationKey
+                            )
+                        }
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextField(
-                        value = replyText,
-                        onValueChange = { replyText = it },
-                        placeholder = { Text("Type a reply...", color = Color.Gray, fontSize = 14.sp) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 44.dp)
-                            .focusRequester(focusRequester),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF2C2C2E),
-                            unfocusedContainerColor = Color(0xFF2C2C2E),
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(22.dp),
-                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Normal),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Send
-                        ),
-                        keyboardActions = KeyboardActions(onSend = {
-                            if (replyText.isNotBlank()) {
-                                executeDirectReply(context, replyAction, replyText)
-                                // We keep it in the island until manual delete
-                                replyText = ""
-                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }
-                        })
+                    Text(
+                        text = "Type a reply...",
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(
-                        onClick = {
-                            if (replyText.isNotBlank()) {
-                                executeDirectReply(context, replyAction, replyText)
-                                // We keep it in the island until manual delete
-                                replyText = ""
-                                IslandStateManager.getInstance().pushState(state.copy(isReplying = false))
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }
-                        },
-                        modifier = Modifier.size(44.dp).background(Color(0xFF30D158), CircleShape)
-                    ) {
-                        Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = null,
+                        tint = Color(0xFF30D158),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             } else {
                 // NORMAL NOTIFICATION CONTENT
@@ -346,7 +309,7 @@ private fun NotificationExpandedContent(
                             packageName = target.packageName,
                             appName = target.appName,
                             size = 52.dp,
-                            fallbackDrawable = target.appIcon
+                            fallbackDrawable = target.largeIcon ?: target.appIcon
                         )
                         Spacer(Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -407,7 +370,12 @@ private fun NotificationExpandedContent(
                     }
                     ActionChip("REPLY") {
                         if (replyAction != null) {
-                            IslandStateManager.getInstance().pushState(state.copy(isReplying = true))
+                            IslandStateManager.getInstance().collapseCurrentState()
+                            com.miui.dynamicisland.ui.ReplyActivity.launch(
+                                context,
+                                state.appName,
+                                state.notificationKey
+                            )
                         } else {
                             val launchIntent =
                                 context.packageManager.getLaunchIntentForPackage(state.packageName)

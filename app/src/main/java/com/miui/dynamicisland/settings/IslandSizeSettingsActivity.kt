@@ -196,6 +196,7 @@ private fun IslandSizeSettingsScreen(
             val widthDp = currentOverride?.width ?: defaults.width
             val heightDp = currentOverride?.height ?: defaults.height
             val radiusDp = currentOverride?.cornerRadius ?: defaults.cornerRadius
+            val expWidthScale = currentOverride?.expandedWidthScale ?: expandedWidthScale
             val expHeightScale = currentOverride?.expandedHeightScale ?: expandedHeightScale
 
             var isExpandedSizing by remember { mutableStateOf(false) }
@@ -264,6 +265,15 @@ private fun IslandSizeSettingsScreen(
 
                         Text("Expanded Card Dimensions", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(8.dp))
+
+                        ScaleSlider(
+                            label = "Expanded width scale",
+                            value = expWidthScale,
+                            range = 0.7f..4.0f,
+                            onValueChange = { newValue ->
+                                scope.launch { sizeManager.updateDimensions(item.stateClass, expandedWidthScale = newValue) }
+                            }
+                        )
 
                         ScaleSlider(
                             label = "Expanded height scale",

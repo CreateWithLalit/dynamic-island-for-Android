@@ -21,6 +21,7 @@ sealed class IslandState(
         val isCharging: Boolean = true,
         val chargeMethod: ChargeMethod = ChargeMethod.WIRED,
         val estimatedTimeMinutes: Int = -1,
+        val wattage: Int = 0,
         override val isExpanded: Boolean = false
     ) : IslandState(30, 3000L, true, isExpanded) {
         enum class ChargeMethod { WIRED, WIRELESS, NONE, UNKNOWN }
@@ -58,6 +59,7 @@ sealed class IslandState(
         val content: String,
         val packageName: String,
         val appIcon: Drawable? = null,
+        val largeIcon: Drawable? = null,
         val postTime: Long = System.currentTimeMillis(),
         val queueCount: Int = 1,
         val queueIndex: Int = 0,
@@ -73,8 +75,11 @@ sealed class IslandState(
         val isConnected: Boolean = false,
         val deviceName: String = "",
         val batteryLevel: Int? = null,
+        val batteryLeft: Int? = null,
+        val batteryRight: Int? = null,
+        val batteryCase: Int? = null,
         override val isExpanded: Boolean = false
-    ) : IslandState(35, 3000L, false, isExpanded)
+    ) : IslandState(35, 4000L, true, isExpanded)
 
     data class Silent(
         val isSilent: Boolean = true,
@@ -113,6 +118,7 @@ sealed class IslandState(
         val windSpeed: Double = 0.0,
         val humidity: Int = 0,
         val visibility: Int = 0,
+        val precipitation: Double = 0.0,
         val hourlyForecast: List<com.miui.dynamicisland.data.model.HourlyWeather> = emptyList(),
         val dailyForecast: List<com.miui.dynamicisland.data.model.DailyWeather> = emptyList(),
         override val isExpanded: Boolean = false
@@ -122,7 +128,76 @@ sealed class IslandState(
         val notificationCount: Int,
         override val isExpanded: Boolean = false
     ) : IslandState(100, Long.MAX_VALUE, false, isExpanded)
-} // ✅ Added missing closing brace
+
+    data class Navigation(
+        val direction: Direction,
+        val distance: String,
+        val instruction: String,
+        val street: String = "",
+        val toward: String = "",
+        val nextDirection: Direction? = null,
+        val nextDistance: String = "",
+        val appIcon: Drawable? = null,
+        val isMuted: Boolean = false,
+        val isUrgent: Boolean = false,
+        val mapSnippet: Bitmap? = null,
+        val mapImageUrl: String? = null,
+        val packageName: String = "com.google.android.apps.maps",
+        override val isExpanded: Boolean = false
+    ) : IslandState(25, Long.MAX_VALUE, true, isExpanded) {
+        enum class Direction { 
+            STRAIGHT, LEFT, RIGHT, SLIGHT_LEFT, SLIGHT_RIGHT, U_TURN, MERGE, EXIT, ARRIVE, UNKNOWN 
+        }
+    }
+
+    data class Progress(
+        val appName: String,
+        val title: String,
+        val progress: Float, // 0f to 1f
+        val remainingTime: String = "",
+        val isDownload: Boolean = true,
+        val packageName: String = "",
+        override val isExpanded: Boolean = false
+    ) : IslandState(12, Long.MAX_VALUE, true, isExpanded)
+
+    data class Clipboard(
+        val text: String,
+        override val isExpanded: Boolean = false
+    ) : IslandState(18, 5000L, true, isExpanded)
+
+    data class Timer(
+        val mode: TimerMode,
+        val status: TimerStatus,
+        override val isExpanded: Boolean = false
+    ) : IslandState(14, Long.MAX_VALUE, true, isExpanded) {
+
+        sealed class TimerMode {
+            data class Countdown(
+                val totalDurationMs: Long,
+                val remainingMs: Long,
+                val label: String? = null
+            ) : TimerMode()
+
+            data class Stopwatch(
+                val elapsedMs: Long,
+                val laps: List<Long> = emptyList()
+            ) : TimerMode()
+
+            object Idle : TimerMode()
+        }
+
+        sealed class TimerStatus {
+            object Running : TimerStatus()
+            object Paused : TimerStatus()
+            object Finished : TimerStatus()
+        }
+    }
+}
+
+sealed class IslandInputState {
+    object Normal : IslandInputState()
+    object ReplyMode : IslandInputState()
+}
 
 // Extension function (now outside sealed class)
 fun IslandState.withExpanded(expanded: Boolean): IslandState {
@@ -136,6 +211,10 @@ fun IslandState.withExpanded(expanded: Boolean): IslandState {
         is IslandState.Volume -> copy(isExpanded = expanded)
         is IslandState.Weather -> copy(isExpanded = expanded)
         is IslandState.LockScreen -> copy(isExpanded = expanded)
+        is IslandState.Navigation -> copy(isExpanded = expanded)
+        is IslandState.Progress -> copy(isExpanded = expanded)
+        is IslandState.Clipboard -> copy(isExpanded = expanded)
+        is IslandState.Timer -> copy(isExpanded = expanded)
         else -> this
     }
 }

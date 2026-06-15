@@ -1,36 +1,33 @@
 package com.miui.dynamicisland.ui.components
 
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miui.dynamicisland.ui.island.WeatherSlot
 import com.miui.dynamicisland.ui.states.IslandState
+import com.miui.dynamicisland.ui.weather.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
 import java.util.*
 
 @Composable
@@ -53,10 +50,7 @@ private fun WeatherCompact(
     slot: WeatherSlot,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier.fillMaxHeight(),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(modifier = modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
         when (slot) {
             WeatherSlot.LEFT -> {
                 Text(
@@ -72,9 +66,7 @@ private fun WeatherCompact(
                     imageVector = getWeatherIconFromCode(state.iconCode),
                     contentDescription = state.condition,
                     tint = Color.White,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .padding(end = 8.dp)
+                    modifier = Modifier.size(20.dp).padding(end = 8.dp)
                 )
             }
         }
@@ -87,11 +79,10 @@ private fun WeatherExpanded(
     modifier: Modifier = Modifier
 ) {
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-
     LaunchedEffect(Unit) {
         while (true) {
             currentTimeMillis = System.currentTimeMillis()
-            delay(60000L) // Update every minute
+            delay(60000L)
         }
     }
 
@@ -99,227 +90,124 @@ private fun WeatherExpanded(
     val dateFormat = SimpleDateFormat("EEEE, d MMM", Locale.getDefault())
     val currentTimeStr = timeFormat.format(Date(currentTimeMillis))
     val currentDateStr = dateFormat.format(Date(currentTimeMillis))
+    
+    val textShadow = remember {
+        Shadow(color = Color.Black.copy(alpha = 0.5f), offset = Offset(0f, 2f), blurRadius = 8f)
+    }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // 1. Header: Date and Location
-        Column(modifier = Modifier.fillMaxWidth().align(Alignment.Start)) {
-            Text(
-                text = currentDateStr.replaceFirstChar { it.uppercase() },
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 13.sp
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
+    val zoneId = ZoneId.systemDefault()
+    val currentLocalTime = Instant.ofEpochMilli(currentTimeMillis).atZone(zoneId).toLocalTime()
+    val sunriseLocalTime = Instant.ofEpochSecond(state.sunrise).atZone(zoneId).toLocalTime()
+    val sunsetLocalTime = Instant.ofEpochSecond(state.sunset).atZone(zoneId).toLocalTime()
+
+    val sceneData = WeatherSceneData(
+        condition = getWeatherConditionFromIconCode(state.iconCode),
+        sunrise = sunriseLocalTime,
+        sunset = sunsetLocalTime,
+        precipitationIntensity = 0.5f
+    )
+
+    Box(modifier = modifier.fillMaxSize()) {
+        ImmersiveWeatherScene(
+            weatherData = sceneData,
+            currentTime = currentLocalTime,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().align(Alignment.Start)) {
                 Text(
-                    text = state.cityName,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Normal
+                    text = currentDateStr.replaceFirstChar { it.uppercase() },
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 13.sp,
+                    style = TextStyle(shadow = textShadow)
                 )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // 2. Arc + Time (Hero Section)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(110.dp),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            SunMoonTrajectory(
-                sunrise = state.sunrise,
-                sunset = state.sunset,
-                currentTime = currentTimeMillis / 1000
-            )
-
-            // Large Time centered below the arc summit
-            Text(
-                text = currentTimeStr,
-                color = Color.White,
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.padding(top = 42.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // 3. Hourly Forecast (Scrollable)
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp)
-        ) {
-            items(state.hourlyForecast) { item ->
-                HourlyItem(item)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SunMoonTrajectory(sunrise: Long, sunset: Long, currentTime: Long) {
-    val sunriseTime = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(sunrise * 1000))
-    val sunsetTime = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(sunset * 1000))
-
-    val isDay = currentTime in sunrise..sunset
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
-            val arcHeight = height * 0.85f
-
-            // Draw the arc background (thick yellow-ish)
-            drawArc(
-                color = if (isDay) Color(0xFFFFD60A).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
-                startAngle = 180f,
-                sweepAngle = 180f,
-                useCenter = false,
-                topLeft = Offset(0f, height - arcHeight),
-                size = Size(width, arcHeight * 2),
-                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
-            )
-
-            // Calculate progress
-            val dayProgress = if (sunset > sunrise) {
-                ((currentTime - sunrise).toFloat() / (sunset - sunrise).toFloat()).coerceIn(0f, 1f)
-            } else 0.5f
-
-            val nightProgress = if (currentTime > sunset) {
-                ((currentTime - sunset).toFloat() / (24 * 3600 - (sunset - sunrise))).coerceIn(0f, 1f)
-            } else if (currentTime < sunrise) {
-                ((currentTime + (24 * 3600 - sunset)).toFloat() / (24 * 3600 - (sunset - sunrise))).coerceIn(0f, 1f)
-            } else 0f
-
-            val displayProgress = if (isDay) dayProgress else nightProgress
-
-            val angle = 180f + displayProgress * 180f
-            val rad = Math.toRadians(angle.toDouble())
-            val centerX = width / 2
-            val centerY = height
-            val radiusX = width / 2
-            val radiusY = arcHeight
-
-            val iconX = (centerX + radiusX * Math.cos(rad)).toFloat()
-            val iconY = (centerY + radiusY * Math.sin(rad)).toFloat()
-
-            val iconColor = if (isDay) Color(0xFFFFD60A) else Color(0xFFBDC3C7)
-            val glowColor = if (isDay) Color(0xFFFFD60A).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.3f)
-
-            // Draw Glow
-            drawIntoCanvas { canvas ->
-                val paint = Paint().asFrameworkPaint().apply {
-                    setShadowLayer(20.dp.toPx(), 0f, 0f, glowColor.toArgb())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LocationOn, null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(state.cityName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, style = TextStyle(shadow = textShadow))
                 }
-                canvas.nativeCanvas.drawCircle(iconX, iconY, 10.dp.toPx(), paint)
             }
 
-            // Draw Sun/Moon circle
-            drawCircle(
-                color = iconColor,
-                radius = 10.dp.toPx(),
-                center = Offset(iconX, iconY)
-            )
+            Spacer(modifier = Modifier.height(20.dp))
 
-            if (!isDay) {
-                drawCircle(
-                    color = Color.Black,
-                    radius = 8.dp.toPx(),
-                    center = Offset(iconX - 4.dp.toPx(), iconY - 3.dp.toPx())
+            Box(modifier = Modifier.fillMaxWidth().height(130.dp), contentAlignment = Alignment.TopCenter) {
+                Text(
+                    text = currentTimeStr,
+                    color = Color.White,
+                    fontSize = 52.sp,
+                    fontWeight = FontWeight.Light,
+                    style = TextStyle(shadow = textShadow),
+                    modifier = Modifier.padding(top = 35.dp)
+                )
+                
+                Text(
+                    text = "${state.temperature}°",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Medium,
+                    style = TextStyle(shadow = textShadow),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 45.dp)
                 )
             }
-        }
 
-        // Labels
-        Column(modifier = Modifier.align(Alignment.BottomStart)) {
-            Text("Sunrise", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
-            Text(sunriseTime, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        }
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Column(modifier = Modifier.align(Alignment.BottomEnd), horizontalAlignment = Alignment.End) {
-            Text("Sunset", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
-            Text(sunsetTime, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            // Glassy Hourly Card
+            Box(
+                modifier = Modifier.fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                    .padding(vertical = 12.dp)
+            ) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    val forecast = state.hourlyForecast.take(8)
+                    items(forecast) { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            HourlyItem(item, textShadow)
+                            if (forecast.indexOf(item) < forecast.size - 1) {
+                                Box(modifier = Modifier.padding(horizontal = 12.dp).width(0.5.dp).height(35.dp).background(Color.White.copy(alpha = 0.2f)))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+private fun getWeatherConditionFromIconCode(iconCode: String): WeatherCondition = when (iconCode.trim()) {
+    "01d", "01n" -> WeatherCondition.Clear
+    "02d", "02n", "03d", "03n", "04d", "04n" -> WeatherCondition.Cloudy
+    "09d", "09n", "10d", "10n" -> WeatherCondition.Rain
+    "11d", "11n" -> WeatherCondition.Storm
+    "13d", "13n" -> WeatherCondition.Snow
+    "50d", "50n" -> WeatherCondition.Fog
+    else -> WeatherCondition.Cloudy
+}
+
 @Composable
-private fun HourlyItem(item: com.miui.dynamicisland.data.model.HourlyWeather) {
+private fun HourlyItem(item: com.miui.dynamicisland.data.model.HourlyWeather, textShadow: Shadow) {
     val hour = SimpleDateFormat("h a", Locale.getDefault()).format(Date(item.time))
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Text(text = hour, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
-        Icon(
-            imageVector = getWeatherIconFromCode(item.iconCode),
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(26.dp)
-        )
-        Text(
-            text = "${item.temperature}°",
-            color = Color.White,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-private fun DailyItem(item: com.miui.dynamicisland.data.model.DailyWeather) {
-    val day = SimpleDateFormat("EEE", Locale.getDefault()).format(Date(item.time))
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.width(55.dp)
-    ) {
-        Text(text = day, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        Icon(
-            imageVector = getWeatherIconFromCode(item.iconCode),
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(24.dp)
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "${item.maxTemp}°", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text(text = "/", color = Color.White.copy(alpha = 0.3f), fontSize = 11.sp, modifier = Modifier.padding(horizontal = 2.dp))
-            Text(text = "${item.minTemp}°", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
-private fun WeatherStatItem(icon: ImageVector, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Icon(icon, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
-        Text(text = value, color = Color.White, fontSize = 12.sp)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.width(42.dp)) {
+        Text(hour.lowercase(), color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp, style = TextStyle(shadow = textShadow))
+        Icon(getWeatherIconFromCode(item.iconCode), null, tint = Color.White, modifier = Modifier.size(24.dp))
+        Text("${item.temperature}°", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = TextStyle(shadow = textShadow))
     }
 }
 
 private fun getWeatherIconFromCode(iconCode: String): ImageVector = when (iconCode.trim()) {
-    "01d"                          -> Icons.Default.WbSunny
-    "01n"                          -> Icons.Default.NightsStay
-    "02d", "02n",
-    "03d", "03n",
-    "04d", "04n"                   -> Icons.Default.Cloud
-    "09d", "09n",
-    "10d", "10n"                   -> Icons.Default.WbCloudy
-    "11d", "11n"                   -> Icons.Outlined.Bolt
-    "13d", "13n"                   -> Icons.Default.AcUnit
-    else                             -> Icons.Default.WbCloudy
+    "01d" -> Icons.Default.WbSunny
+    "01n" -> Icons.Default.NightsStay
+    "02d", "02n", "03d", "03n", "04d", "04n" -> Icons.Default.Cloud
+    "09d", "09n", "10d", "10n" -> Icons.Default.Grain // Grain looks more like rain/showers
+    "11d", "11n" -> Icons.Default.Bolt
+    "13d", "13n" -> Icons.Default.AcUnit
+    else -> Icons.Default.WbCloudy
 }

@@ -33,6 +33,7 @@ import com.miui.dynamicisland.manager.IslandCalibration
 import com.miui.dynamicisland.manager.IslandStateManager
 import com.miui.dynamicisland.manager.getIslandSizeManager
 import com.miui.dynamicisland.ui.components.*
+import com.miui.dynamicisland.ui.timer.*
 import com.miui.dynamicisland.ui.states.IslandState
 import com.miui.dynamicisland.ui.states.withExpanded
 
@@ -55,6 +56,25 @@ sealed class CallAction {
     object LaunchApp     : CallAction()
 }
 
+// ─── Sealed action type for weather ──────────────────────────────────────────
+sealed class WeatherAction {
+    object Refresh : WeatherAction()
+}
+
+// ─── Sealed action type for clipboard ────────────────────────────────────────
+sealed class ClipboardAction {
+    object Search    : ClipboardAction()
+    object Translate : ClipboardAction()
+    object Share     : ClipboardAction()
+}
+
+// ─── Sealed action type for timer ───────────────────────────────────────────
+sealed class TimerAction {
+    object PauseResume : TimerAction()
+    object Reset       : TimerAction()
+    object Secondary   : TimerAction() // Lap or +1m
+}
+
 // ─── Slot enum for weather widget (LEFT = temperature, RIGHT = icon) ──────────
 enum class WeatherSlot { LEFT, RIGHT }
 
@@ -65,7 +85,7 @@ private val COMPACT_RADIUS    = 18.5.dp
 
 private const val EXPANDED_WIDTH_DP = 360
 private val MEDIA_EXP_WIDTH   = EXPANDED_WIDTH_DP.dp
-private val MEDIA_EXP_HEIGHT  = 170.dp
+private val MEDIA_EXP_HEIGHT  = 230.dp
 private val MEDIA_EXP_RADIUS  = 52.dp
 
 private val NOTIFY_EXP_HEIGHT = 140.dp
@@ -83,15 +103,37 @@ fun DynamicIsland(
     calibration: IslandCalibration,
     modifier: Modifier = Modifier,
     onMediaAction: (MediaAction) -> Unit = {},
-    onCallAction: (CallAction) -> Unit = {}
+    onCallAction: (CallAction) -> Unit = {},
+    onWeatherAction: (WeatherAction) -> Unit = {},
+    onClipboardAction: (ClipboardAction) -> Unit = {},
+    onTimerAction: (TimerAction) -> Unit = {}
 ) {
     val stateManager = remember { IslandStateManager.getInstance() }
     val allStates by stateManager.allStates.collectAsState()
+    val isLandscape by stateManager.isLandscapeMode.collectAsState()
+    val isFixNotch by stateManager.isFixNotchMode.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Landscape filtering for Fix Notch mode
+    if (isLandscape && isFixNotch) {
+        val isEssential = state is IslandState.Navigation || 
+                         state is IslandState.Call || 
+                         state is IslandState.Timer ||
+                         state is IslandState.Media ||
+                         state is IslandState.Progress
+        if (!isEssential && state !is IslandState.Idle) {
+             // If not essential but something is active, we might want to hide it
+             // but if nothing is active (Idle), we definitely don't want to block the shell
+             return
+        }
+    }
 
     // Use rememberUpdatedState to keep the latest actions without restarting pointerInput
     val currentOnMediaAction by rememberUpdatedState(onMediaAction)
     val currentOnCallAction by rememberUpdatedState(onCallAction)
+    val currentOnWeatherAction by rememberUpdatedState(onWeatherAction)
+    val currentOnClipboardAction by rememberUpdatedState(onClipboardAction)
+    val currentOnTimerAction by rememberUpdatedState(onTimerAction)
 
     // 1. Single Click: Toggle Expand/Collapse
     val onTap = {
@@ -99,6 +141,9 @@ fun DynamicIsland(
             stateManager.collapseCurrentState()
         } else if (state.allowInteraction) {
             stateManager.expandCurrentState(6000L)
+            if (state is IslandState.Weather) {
+                currentOnWeatherAction(WeatherAction.Refresh)
+            }
         }
         Unit
     }
@@ -135,6 +180,11 @@ fun DynamicIsland(
                     launchIntent?.let { context.startActivity(it) }
                 }
             }
+            is IslandState.Navigation -> {
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(state.packageName)
+                launchIntent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                launchIntent?.let { context.startActivity(it) }
+            }
             else -> {}
         }
     }
@@ -158,8 +208,14 @@ fun DynamicIsland(
                             change.consume()
                             if (dragAmount > 50) {
                                 stateManager.previousState()
+                                if (allStates.getOrNull(stateManager.currentIndex.value) is IslandState.Weather) {
+                                    currentOnWeatherAction(WeatherAction.Refresh)
+                                }
                             } else if (dragAmount < -50) {
                                 stateManager.nextState()
+                                if (allStates.getOrNull(stateManager.currentIndex.value) is IslandState.Weather) {
+                                    currentOnWeatherAction(WeatherAction.Refresh)
+                                }
                             }
                         }
                     }
@@ -170,8 +226,11 @@ fun DynamicIsland(
         IslandShell(
             state       = state,
             calibration = calibration,
-            onMediaAction = onMediaAction,
-            onCallAction = onCallAction,
+            onMediaAction = currentOnMediaAction,
+            onCallAction = currentOnCallAction,
+            onWeatherAction = currentOnWeatherAction,
+            onClipboardAction = currentOnClipboardAction,
+            onTimerAction = currentOnTimerAction,
             queueCount   = allStates.size
         )
     }
@@ -204,15 +263,19 @@ private fun IslandShell(
     calibration: IslandCalibration,
     onMediaAction: (MediaAction) -> Unit,
     onCallAction: (CallAction) -> Unit,
+    onWeatherAction: (WeatherAction) -> Unit,
+    onClipboardAction: (ClipboardAction) -> Unit = {},
+    onTimerAction: (TimerAction) -> Unit = {},
     queueCount: Int = 0
 ) {
     val context = LocalContext.current
     val sizeManager = remember { getIslandSizeManager(context) }
     val overridesMap by sizeManager.overridesFlow.collectAsState()
-    val expandedWidthScale by sizeManager.expandedWidthScaleFlow.collectAsState()
+    val globalExpandedWidthScale by sizeManager.expandedWidthScaleFlow.collectAsState()
     val globalExpandedHeightScale by sizeManager.expandedHeightScaleFlow.collectAsState()
     val override = overridesMap[state::class]
     
+    val expandedWidthScale = override?.expandedWidthScale ?: globalExpandedWidthScale
     val expandedHeightScale = override?.expandedHeightScale ?: globalExpandedHeightScale
 
     // Apply user-calibrated overrides to the compact dimensions
@@ -248,6 +311,7 @@ private fun IslandShell(
                     targetWidth        = scaleExpandedWidth(DEFAULT_EXP_WIDTH),
                     targetHeight       = scaleExpandedHeight(WEATHER_EXP_HEIGHT),
                     targetCornerRadius = scaleExpandedRadius(DEFAULT_EXP_RADIUS),
+                    horizontalPadding  = 0.dp, // Weather background should be edge-to-edge
                     centerContent = {
                         WeatherWidget(
                             state      = state,
@@ -299,6 +363,7 @@ private fun IslandShell(
                     targetHeight       = targetH,
                     targetCornerRadius = targetR,
                     centerDeadZoneWidth = 0.dp,
+                    horizontalPadding   = 0.dp, // Media background should be edge-to-edge
                     centerContent = {
                         MediaWidget(
                             state         = state,
@@ -397,18 +462,41 @@ private fun IslandShell(
 
         // ── Bluetooth ─────────────────────────────────────────────────────────
         is IslandState.Bluetooth -> {
-            AnimatedCutoutSafeIslandShell(
-                targetWidth        = compactWidth(220.dp),
-                targetHeight       = compactHeight(calibH),
-                targetCornerRadius = compactRadius(calibR),
-                leftContent  = { BluetoothWidget(state = state, slot = BluetoothSlot.LEFT) },
-                rightContent = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        QueueIndicator(queueCount)
-                        BluetoothWidget(state = state, slot = BluetoothSlot.RIGHT)
+            val btCompactW = compactWidth(220.dp)
+            val btCompactH = compactHeight(calibH)
+            val btCompactR = compactRadius(calibR)
+
+            val btExpW = scaleExpandedWidth(320.dp)
+            val btExpH = scaleExpandedHeight(300.dp)
+            val btExpR = scaleExpandedRadius(30.dp)
+
+            val targetW = if (state.isExpanded) btExpW else btCompactW
+            val targetH = if (state.isExpanded) btExpH else btCompactH
+            val targetR = if (state.isExpanded) btExpR else btCompactR
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    centerDeadZoneWidth = 0.dp,
+                    horizontalPadding = 16.dp,
+                    centerContent = { BluetoothExpandedWidget(state = state) }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent  = { BluetoothWidget(state = state, slot = BluetoothSlot.LEFT) },
+                    rightContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            BluetoothWidget(state = state, slot = BluetoothSlot.RIGHT)
+                        }
                     }
-                }
-            )
+                )
+            }
         }
 
         // ── Silent / DND ──────────────────────────────────────────────────────
@@ -495,6 +583,155 @@ private fun IslandShell(
                     }
                 }
             )
+        }
+
+        // ── Navigation ────────────────────────────────────────────────────────
+        is IslandState.Navigation -> {
+            val navCompactW = compactWidth(126.dp)
+            val navCompactH = compactHeight(calibH)
+            val navCompactR = compactRadius(calibR)
+
+            val targetW = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else navCompactW
+            val targetH = if (state.isExpanded) scaleExpandedHeight(160.dp) else navCompactH
+            val targetR = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else navCompactR
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    centerContent = {
+                        NavigationWidget(state = state, slot = NavigationSlot.LEFT, isExpanded = true)
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth        = targetW,
+                    targetHeight       = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent  = { NavigationWidget(state = state, slot = NavigationSlot.LEFT) },
+                    rightContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            NavigationWidget(state = state, slot = NavigationSlot.RIGHT)
+                        }
+                    }
+                )
+            }
+        }
+
+        // ── Progress ──────────────────────────────────────────────────────────
+        is IslandState.Progress -> {
+            val targetW = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(200.dp)
+            val targetH = if (state.isExpanded) scaleExpandedHeight(110.dp) else compactHeight(calibH)
+            val targetR = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR)
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    centerContent = {
+                        ProgressWidget(state = state, slot = ProgressSlot.LEFT, isExpanded = true)
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    progress = state.progress,
+                    progressColor = if (state.isDownload) Color(0xFF0A84FF).copy(alpha = 0.4f) else Color(0xFF30D158).copy(alpha = 0.4f),
+                    leftContent = { ProgressWidget(state = state, slot = ProgressSlot.LEFT) },
+                    rightContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            ProgressWidget(state = state, slot = ProgressSlot.RIGHT)
+                        }
+                    }
+                )
+            }
+        }
+
+        // ── Clipboard ─────────────────────────────────────────────────────────
+        is IslandState.Clipboard -> {
+            val targetW = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else compactWidth(160.dp)
+            val targetH = if (state.isExpanded) scaleExpandedHeight(140.dp) else compactHeight(calibH)
+            val targetR = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else compactRadius(calibR)
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    centerContent = {
+                        ClipboardWidget(state = state, slot = ClipboardSlot.LEFT, isExpanded = true, onAction = onClipboardAction)
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent = { ClipboardWidget(state = state, slot = ClipboardSlot.LEFT) },
+                    rightContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            ClipboardWidget(state = state, slot = ClipboardSlot.RIGHT)
+                        }
+                    }
+                )
+            }
+        }
+
+        // ── Timer ─────────────────────────────────────────────────────────────
+        is IslandState.Timer -> {
+            val timerCompactW = compactWidth(140.dp)
+            val timerCompactH = compactHeight(calibH)
+            val timerCompactR = compactRadius(calibR)
+
+            val targetW = if (state.isExpanded) scaleExpandedWidth(DEFAULT_EXP_WIDTH) else timerCompactW
+            val targetH = if (state.isExpanded) scaleExpandedHeight(82.dp) else timerCompactH
+            val targetR = if (state.isExpanded) scaleExpandedRadius(DEFAULT_EXP_RADIUS) else timerCompactR
+
+            if (state.isExpanded) {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    centerContent = {
+                        TimerPill(
+                            state = state,
+                            slot = TimerSlot.LEFT,
+                            isExpanded = true,
+                            onAction = onTimerAction
+                        )
+                    }
+                )
+            } else {
+                AnimatedCutoutSafeIslandShell(
+                    targetWidth = targetW,
+                    targetHeight = targetH,
+                    targetCornerRadius = targetR,
+                    leftContent = {
+                        TimerPill(
+                            state = state,
+                            slot = TimerSlot.LEFT,
+                            onAction = onTimerAction
+                        )
+                    },
+                    rightContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            QueueIndicator(queueCount)
+                            TimerPill(
+                                state = state,
+                                slot = TimerSlot.RIGHT,
+                                onAction = onTimerAction
+                            )
+                        }
+                    }
+                )
+            }
         }
     }
 }

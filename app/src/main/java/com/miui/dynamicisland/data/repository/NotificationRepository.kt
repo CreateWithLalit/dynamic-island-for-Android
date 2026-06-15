@@ -13,6 +13,7 @@ data class NotificationData(
     val content: String,
     val packageName: String,
     val appIcon: Drawable?,
+    val largeIcon: Drawable? = null,
     val timestamp: Long,
     val contentIntent: PendingIntent? = null,
     val actions: Array<Notification.Action>? = null,
@@ -27,6 +28,7 @@ data class NotificationData(
             content = "",
             packageName = "",
             appIcon = null,
+            largeIcon = null,
             timestamp = 0L,
             contentIntent = null,
             actions = null,
@@ -59,8 +61,14 @@ object NotificationRepository {
             return
         }
         val current = _notifications.value
-        val updated = listOf(data) + current.items
-            .filterNot { it.packageName == data.packageName && it.timestamp == data.timestamp }
+        
+        // Filter out old version of the same notification (by key) 
+        // OR old notification from same package with same timestamp (backup)
+        val updated = listOf(data) + current.items.filterNot { 
+            (data.notificationKey.isNotEmpty() && it.notificationKey == data.notificationKey) ||
+            (it.packageName == data.packageName && it.timestamp == data.timestamp)
+        }
+
         _notifications.value = current.copy(
             items = updated.take(MAX_QUEUE_SIZE),
             index = 0

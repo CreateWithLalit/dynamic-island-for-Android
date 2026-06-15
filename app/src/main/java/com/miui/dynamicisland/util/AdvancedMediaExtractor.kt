@@ -76,6 +76,8 @@ class AdvancedMediaExtractor(
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: "Unknown Artist"
 
+        val albumArt = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
         val albumArtUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
         val position = playbackState?.position ?: 0L
@@ -87,6 +89,7 @@ class AdvancedMediaExtractor(
                 artist = artist,
                 isPlaying = isPlaying,
                 packageName = controller.packageName,
+                albumArt = albumArt,
                 albumArtUri = albumArtUri,
                 duration = duration,
                 position = position

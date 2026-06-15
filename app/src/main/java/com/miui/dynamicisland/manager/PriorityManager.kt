@@ -27,7 +27,7 @@ class PriorityManager {
             is IslandState.Silent -> 2000L
             is IslandState.Notification -> if (isMessagingApp(state.packageName)) 5000L else 3500L
             is IslandState.Volume -> 1500L
-            is IslandState.Bluetooth -> 2500L
+            is IslandState.Bluetooth -> 5000L
             else -> state.durationMs
         }
     }

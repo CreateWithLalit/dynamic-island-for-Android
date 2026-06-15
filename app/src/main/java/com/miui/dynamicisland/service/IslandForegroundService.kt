@@ -13,7 +13,9 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.os.Build
 import android.view.Gravity
+import android.view.OrientationEventListener
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
@@ -32,21 +34,16 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.miui.dynamicisland.DynamicIslandApplication
 import com.miui.dynamicisland.data.model.BatteryInfo
-import com.miui.dynamicisland.data.repository.BatteryRepository
-import com.miui.dynamicisland.data.repository.BluetoothRepository
-import com.miui.dynamicisland.data.repository.MediaRepository
-import com.miui.dynamicisland.data.repository.MediaRepositoryBridge
-import com.miui.dynamicisland.data.repository.NotificationRepository
-import com.miui.dynamicisland.data.repository.WeatherRepository
+import com.miui.dynamicisland.data.repository.*
 import com.miui.dynamicisland.manager.CalibrationManager
 import com.miui.dynamicisland.manager.IslandCalibration
 import com.miui.dynamicisland.manager.IslandStateManager
 import com.miui.dynamicisland.receiver.AudioModeReceiver
 import com.miui.dynamicisland.receiver.BatteryReceiver
-import com.miui.dynamicisland.ui.island.CallAction
-import com.miui.dynamicisland.ui.island.DynamicIsland
-import com.miui.dynamicisland.ui.island.MediaAction
+import com.miui.dynamicisland.service.IslandCallService
+import com.miui.dynamicisland.ui.island.*
 import com.miui.dynamicisland.ui.states.IslandState
+import com.miui.dynamicisland.ui.states.IslandInputState
 import com.miui.dynamicisland.util.IslandLogger
 import com.miui.dynamicisland.util.WindowUtils
 import com.miui.dynamicisland.util.OverlaySettings
@@ -61,21 +58,30 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         private const val TAG = "IslandForegroundService"
         const val ACTION_START = "com.miui.dynamicisland.START"
         const val ACTION_STOP  = "com.miui.dynamicisland.STOP"
+        const val ACTION_UPDATE_NOTCH_MODE = "com.miui.dynamicisland.UPDATE_NOTCH_MODE"
     }
 
     private lateinit var windowManager: WindowManager
     private var islandView: ComposeView? = null
     private var islandParams: WindowManager.LayoutParams? = null
+    private var wasReplying: Boolean = false
+    
+    private var isFixNotchMode: Boolean = true
+    private var isLandscapeEnabled: Boolean = true
+    private var currentOrientation: Int = Configuration.ORIENTATION_PORTRAIT
 
     private val stateManager = IslandStateManager.getInstance()
     private lateinit var calibrationManager: CalibrationManager
     private lateinit var batteryRepository: BatteryRepository
     private lateinit var bluetoothRepository: BluetoothRepository
+    private lateinit var timerRepository: TimerRepository
     lateinit var mediaRepository: MediaRepository
         private set
     private lateinit var weatherRepository: WeatherRepository
     private lateinit var batteryReceiver: BatteryReceiver
     private var audioUpdateReceiver: BroadcastReceiver? = null
+    private var clipboardManager: android.content.ClipboardManager? = null
+    private var clipboardListener: android.content.ClipboardManager.OnPrimaryClipChangedListener? = null
 
     private var mediaSessionManager: MediaSessionManager? = null
     private val mediaSessionListener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
@@ -91,6 +97,130 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateRegistryController.savedStateRegistry
 
+    private var lastBluetoothDeviceName: String? = null
+
+    private val settingsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == ACTION_UPDATE_NOTCH_MODE) {
+                isFixNotchMode = OverlaySettings.isFixNotchMode(context)
+                stateManager.setFixNotchMode(isFixNotchMode)
+                isLandscapeEnabled = OverlaySettings.isLandscapeEnabled(context)
+                // Force re-layout
+                handleOrientationUpdate(resources.configuration.orientation)
+            }
+        }
+    }
+
+    private val orientationListener by lazy {
+        object : OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                
+                val newOrientation = if (orientation in 45..134 || orientation in 225..314) {
+                    Configuration.ORIENTATION_LANDSCAPE
+                } else {
+                    Configuration.ORIENTATION_PORTRAIT
+                }
+                
+                if (newOrientation != currentOrientation) {
+                    currentOrientation = newOrientation
+                    handleOrientationUpdate(newOrientation)
+                }
+            }
+        }
+    }
+
+    private fun handleOrientationUpdate(orientation: Int) {
+        val params = islandParams ?: return
+        val view = islandView ?: return
+        val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
+        
+        // Sync actual landscape state to manager regardless of mode
+        stateManager.setLandscapeMode(isLandscape)
+
+        if (!isLandscapeEnabled && isLandscape) {
+            view.visibility = android.view.View.GONE
+            return
+        }
+        
+        view.visibility = android.view.View.VISIBLE
+
+        if (isLandscape && isFixNotchMode) {
+            val side = detectNotchSide()
+            when (side) {
+                NotchSide.LEFT -> {
+                    params.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                    params.x = (8 * resources.displayMetrics.density).toInt()
+                    params.y = 0
+                }
+                NotchSide.RIGHT -> {
+                    params.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+                    params.x = (8 * resources.displayMetrics.density).toInt()
+                    params.y = 0
+                }
+                else -> {
+                    params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                    params.x = 0
+                    params.y = 0
+                }
+            }
+            params.width = WindowManager.LayoutParams.WRAP_CONTENT
+            params.height = WindowManager.LayoutParams.WRAP_CONTENT
+        } else {
+            // PORTRAIT OR FLEXIBLE MODE
+            params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            params.x = 0
+            // In landscape, we usually want it at the very top (0), in portrait it follows status bar
+            params.y = if (isLandscape) 0 else WindowUtils.getStatusBarHeight(this)
+            params.width = if (stateManager.currentState.value.isExpanded) {
+                WindowManager.LayoutParams.MATCH_PARENT
+            } else {
+                WindowManager.LayoutParams.WRAP_CONTENT
+            }
+            params.height = WindowManager.LayoutParams.WRAP_CONTENT
+        }
+
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Orientation update error", e)
+        }
+    }
+
+    private fun detectNotchSide(): NotchSide {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val windowMetrics = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                windowManager.currentWindowMetrics
+            } else {
+                null
+            }
+            val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                windowMetrics?.windowInsets?.displayCutout
+            } else {
+                // Fallback for P, Q
+                null
+            } ?: return NotchSide.UNKNOWN
+
+            val rects = cutout.boundingRects
+            val displayMetrics = resources.displayMetrics
+            
+            // Using real display metrics to avoid issues with immersive mode reported sizes
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+            
+            return when {
+                rects.any { it.left <= 40 && it.centerY().toDouble() in (screenHeight * 0.2..screenHeight * 0.8) } 
+                    -> NotchSide.LEFT
+                rects.any { it.right >= (screenWidth - 40) && it.centerY().toDouble() in (screenHeight * 0.2..screenHeight * 0.8) }
+                    -> NotchSide.RIGHT
+                else -> NotchSide.UNKNOWN
+            }
+        }
+        return NotchSide.UNKNOWN
+    }
+
+    enum class NotchSide { LEFT, RIGHT, UNKNOWN }
+
     override fun onCreate() {
         savedStateRegistryController.performAttach()
         savedStateRegistryController.performRestore(null)
@@ -100,10 +230,24 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         calibrationManager = CalibrationManager(this)
         batteryRepository  = BatteryRepository(this)
         bluetoothRepository = BluetoothRepository(this)
+        timerRepository    = TimerRepository(this)
         mediaRepository    = MediaRepository(this)
         MediaRepositoryBridge.register(mediaRepository)
         weatherRepository  = WeatherRepository(this)
         batteryReceiver    = BatteryReceiver()
+        
+        isFixNotchMode = OverlaySettings.isFixNotchMode(this)
+        stateManager.setFixNotchMode(isFixNotchMode)
+        isLandscapeEnabled = OverlaySettings.isLandscapeEnabled(this)
+        
+        val filter = IntentFilter(ACTION_UPDATE_NOTCH_MODE)
+        ContextCompat.registerReceiver(this, settingsReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        
+        if (orientationListener.canDetectOrientation()) {
+            orientationListener.enable()
+        }
+        
+        setupClipboardListener()
 
         startForeground(1001, createNotification())
         initializeOverlay()
@@ -162,7 +306,10 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                     state         = currentState,
                     calibration   = calibration,
                     onMediaAction = { handleMediaAction(it) },
-                    onCallAction  = { handleCallAction(it) }
+                    onCallAction  = { handleCallAction(it) },
+                    onWeatherAction = { handleWeatherAction(it) },
+                    onClipboardAction = { handleClipboardAction(it) },
+                    onTimerAction = { handleTimerAction(it) }
                 )
             }
 
@@ -200,6 +347,60 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                 updateOverlayParams(state = state)
             }
         }
+
+        // 3. Input Mode Observer
+        lifecycleScope.launch {
+            stateManager.inputState.collectLatest { inputMode ->
+                when (inputMode) {
+                    is com.miui.dynamicisland.ui.states.IslandInputState.Normal -> exitReplyMode()
+                    is com.miui.dynamicisland.ui.states.IslandInputState.ReplyMode -> enterReplyMode()
+                }
+            }
+        }
+    }
+
+    private fun enterReplyMode() {
+        IslandLogger.d(TAG, "Enter Reply Mode", null)
+        val params = islandParams ?: return
+        val view = islandView ?: return
+
+        // Remove FLAG_NOT_FOCUSABLE to allow keyboard
+        params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+
+        try {
+            windowManager.updateViewLayout(view, params)
+            IslandLogger.d(TAG, "Window flags updated for Reply Mode (Focusable)", null)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Error entering reply mode", e)
+        }
+    }
+
+    private fun exitReplyMode() {
+        IslandLogger.d(TAG, "Exit Reply Mode", null)
+        val params = islandParams ?: return
+        val view = islandView ?: return
+
+        // Restore FLAG_NOT_FOCUSABLE
+        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+
+        try {
+            windowManager.updateViewLayout(view, params)
+            hideIme(view)
+            IslandLogger.d(TAG, "Window flags restored to Normal (Non-focusable)", null)
+        } catch (e: Exception) {
+            IslandLogger.e(TAG, "Error exiting reply mode", e)
+        }
     }
 
     private fun updateOverlayParams(
@@ -223,37 +424,10 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
 
         // 2. Flags Update (Touch handling)
         state?.let {
-            val isReplying = (it as? IslandState.Notification)?.isReplying == true
-            
-            // If replying, we MUST remove FLAG_NOT_FOCUSABLE to allow keyboard input.
-            // We also use FLAG_ALT_FOCUSABLE_IM for better IME interaction in overlays.
-            val baseFlags = if (isReplying) {
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or 
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-            } else {
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            }
-
-            params.flags = baseFlags or
-                           WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                           WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-
-            params.softInputMode = if (isReplying) {
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or 
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
-            } else {
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
-            }
-
             params.width = if (it.isExpanded) {
                 WindowManager.LayoutParams.MATCH_PARENT
             } else {
                 WindowManager.LayoutParams.WRAP_CONTENT
-            }
-            
-            if (isReplying) {
-                IslandLogger.d(TAG, "Entering Reply mode - making overlay focusable", null)
             }
 
             applyLockScreenFlags(params)
@@ -264,19 +438,19 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         } catch (e: Exception) {
             IslandLogger.e(TAG, "Params update error: ${e.message ?: "unknown"}", e)
         }
+
+        val isReplyingNow = (state as? IslandState.Notification)?.isReplying == true
+        wasReplying = isReplyingNow
+    }
+
+    private fun hideIme(targetView: android.view.View) {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        imm.hideSoftInputFromWindow(targetView.windowToken, 0)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        
-        // Full visibility toggle based on orientation
-        islandView?.let { view ->
-            val isPortrait = newConfig.orientation == Configuration.ORIENTATION_PORTRAIT
-            view.visibility = if (isPortrait) android.view.View.VISIBLE else android.view.View.GONE
-            
-            // Log for debugging
-            IslandLogger.d(TAG, "Orientation changed. Visible: $isPortrait", null)
-        }
+        // Manual listener (OrientationEventListener) handles the refined logic
     }
 
     private fun baseParams(): WindowManager.LayoutParams {
@@ -340,6 +514,51 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         islandParams = null
     }
 
+    private fun setupClipboardListener() {
+        clipboardManager = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboardListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+            val clip = clipboardManager?.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val text = clip.getItemAt(0).text?.toString()
+                if (!text.isNullOrBlank()) {
+                    stateManager.pushState(IslandState.Clipboard(text))
+                }
+            }
+        }
+        clipboardManager?.addPrimaryClipChangedListener(clipboardListener)
+    }
+
+    private fun handleClipboardAction(action: com.miui.dynamicisland.ui.island.ClipboardAction) {
+        val current = stateManager.currentState.value as? IslandState.Clipboard ?: return
+        val text = current.text
+        
+        stateManager.collapseCurrentState()
+        stateManager.removeState(IslandState.Clipboard::class.java)
+
+        val intent = when (action) {
+            com.miui.dynamicisland.ui.island.ClipboardAction.Search -> {
+                Intent(Intent.ACTION_WEB_SEARCH).apply { putExtra(android.app.SearchManager.QUERY, text) }
+            }
+            com.miui.dynamicisland.ui.island.ClipboardAction.Translate -> {
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://translate.google.com/?sl=auto&tl=en&text=${android.net.Uri.encode(text)}&op=translate"))
+            }
+            com.miui.dynamicisland.ui.island.ClipboardAction.Share -> {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+            }
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            if (action == com.miui.dynamicisland.ui.island.ClipboardAction.Share) {
+                startActivity(Intent.createChooser(intent, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } else {
+                startActivity(intent)
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun observeWeather() {
         lifecycleScope.launch {
             weatherRepository.cachedWeather.collectLatest { weatherInfo ->
@@ -355,6 +574,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             windSpeed   = weatherInfo.windSpeed,
                             humidity    = weatherInfo.humidity,
                             visibility  = weatherInfo.visibility,
+                            precipitation = weatherInfo.precipitation,
                             hourlyForecast = weatherInfo.hourlyForecast,
                             dailyForecast = weatherInfo.dailyForecast,
                             isExpanded  = false
@@ -374,7 +594,43 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                 } catch (e: Exception) {
                     IslandLogger.e(TAG, "Weather refresh error: ${e.message ?: "unknown"}", e)
                 }
-                delay(15 * 60 * 1000L)
+                
+                val currentInfo = weatherRepository.cachedWeather.value
+                val isRaining = (currentInfo?.precipitation ?: 0.0) > 0.0
+                
+                // If raining, refresh every 1 minute. Otherwise, every 10 minutes.
+                val refreshInterval = if (isRaining) 1 * 60 * 1000L else 10 * 60 * 1000L
+                delay(refreshInterval)
+            }
+        }
+    }
+
+    private fun handleWeatherAction(action: com.miui.dynamicisland.ui.island.WeatherAction) {
+        when (action) {
+            com.miui.dynamicisland.ui.island.WeatherAction.Refresh -> {
+                lifecycleScope.launch {
+                    try {
+                        weatherRepository.refreshWeather()
+                        IslandLogger.d(TAG, "Weather manually refreshed", null)
+                    } catch (e: Exception) {
+                        IslandLogger.e(TAG, "Manual weather refresh failed", e)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleTimerAction(action: com.miui.dynamicisland.ui.island.TimerAction) {
+        when (action) {
+            com.miui.dynamicisland.ui.island.TimerAction.PauseResume -> timerRepository.pauseResume()
+            com.miui.dynamicisland.ui.island.TimerAction.Reset -> timerRepository.reset()
+            com.miui.dynamicisland.ui.island.TimerAction.Secondary -> {
+                val current = stateManager.currentState.value as? IslandState.Timer ?: return
+                if (current.mode is IslandState.Timer.TimerMode.Countdown) {
+                    timerRepository.addOneMinute()
+                } else if (current.mode is IslandState.Timer.TimerMode.Stopwatch) {
+                    timerRepository.lap()
+                }
             }
         }
     }
@@ -415,6 +671,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             batteryLevel = battery.level,
                             isCharging   = true,
                             chargeMethod = battery.chargeMethod.toIslandChargeMethod(),
+                            wattage      = 33, // Default to 33W as requested
                             isExpanded   = false // Always stay in compact pill mode
                         )
                     )
@@ -432,19 +689,52 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
 
     private fun observeBluetooth() {
         lifecycleScope.launch {
-            bluetoothRepository.connectedDevice.collectLatest { info ->
-                if (info.deviceName != null) {
-                    // Force a slightly longer duration (5s) to ensure visibility
+            combine(
+                bluetoothRepository.connectedDevice,
+                BluetoothBatteryStore.snapshot
+            ) { info, snapshot ->
+                info to snapshot
+            }.collectLatest { (info, snapshot) ->
+                val snapshotFresh = snapshot?.isFresh(10_000L) == true
+                val snapshotMatches = snapshotFresh && snapshot?.matchesDeviceName(info.deviceName) == true
+                // If it's fresh and from GMS, we trust it even if the system hasn't fully connected yet
+                val snapshotUsable = snapshotFresh && (snapshotMatches || info.deviceName.isNullOrBlank() || info.isConnected)
+
+                val resolvedName = if (snapshotFresh && !snapshot?.deviceName.isNullOrBlank()) snapshot?.deviceName else info.deviceName
+                val overallFromSnapshot = if (snapshotUsable) snapshot?.overallOrNull() else null
+                val overallBattery = overallFromSnapshot ?: info.batteryLevel
+
+                val left = if (snapshotUsable) snapshot?.batteryLeft else null
+                val right = if (snapshotUsable) snapshot?.batteryRight else null
+                val caseLevel = if (snapshotUsable) snapshot?.batteryCase else null
+
+                // Logic to expand for detailed battery updates (e.g. from GMS notification)
+                val hasDetailedBattery = left != null || right != null || caseLevel != null
+                val isFreshNotificationUpdate = snapshot?.isFresh(10_000L) == true && hasDetailedBattery
+
+                val shouldShow = (info.isConnected || isFreshNotificationUpdate) && !resolvedName.isNullOrBlank()
+                val isNewConnection = shouldShow && (resolvedName != lastBluetoothDeviceName)
+                lastBluetoothDeviceName = if (shouldShow) resolvedName else null
+
+                if (shouldShow) {
                     stateManager.pushState(
                         IslandState.Bluetooth(
-                            isConnected = true,
-                            deviceName = info.deviceName,
-                            batteryLevel = info.batteryLevel
+                            isConnected = info.isConnected || isFreshNotificationUpdate,
+                            deviceName = resolvedName!!,
+                            batteryLevel = overallBattery,
+                            batteryLeft = left,
+                            batteryRight = right,
+                            batteryCase = caseLevel
                         )
                     )
-                    IslandLogger.d(TAG, "Bluetooth state pushed: ${info.deviceName}, battery: ${info.batteryLevel}", null)
+                    
+                    if (isNewConnection || isFreshNotificationUpdate) {
+                        // For TWS connections, keep it in compact pill mode as requested.
+                        // stateManager.expandCurrentState(ms = 4000L, forceAutoCollapse = true)
+                    }
+                    
+                    IslandLogger.d(TAG, "Bluetooth state pushed: $resolvedName, battery: $overallBattery, new: $isNewConnection, detailPop: $isFreshNotificationUpdate", null)
                 } else {
-                    // Only remove if it was actually connected before
                     if (stateManager.currentState.value is IslandState.Bluetooth) {
                         stateManager.removeState(IslandState.Bluetooth::class.java)
                     }
@@ -471,6 +761,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
                             content     = current.content,
                             packageName = current.packageName,
                             appIcon     = current.appIcon,
+                            largeIcon   = current.largeIcon,
                             postTime    = current.timestamp,
                             queueCount  = queueState.items.size,
                             queueIndex  = queueState.safeIndex,
@@ -614,15 +905,16 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
             CallAction.Mute -> {
                 callRepo.toggleMute()
                 if (current != null) {
-                    stateManager.pushState(current.copy(isMuted = callRepo.isMuted()))
+                    // Immediate UI feedback
+                    stateManager.pushState(current.copy(isMuted = !current.isMuted))
                     if (isExpanded) stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
                 }
             }
             CallAction.ToggleSpeaker -> {
                 callRepo.toggleSpeaker()
-                // Force a state refresh if currently in call state
                 if (current != null) {
-                    stateManager.pushState(current.copy(isSpeakerOn = callRepo.isSpeakerOn()))
+                    // Immediate UI feedback
+                    stateManager.pushState(current.copy(isSpeakerOn = !current.isSpeakerOn))
                     if (isExpanded) stateManager.expandCurrentState(4000L, forceAutoCollapse = true)
                 }
             }
@@ -758,6 +1050,11 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         }
 
     override fun onDestroy() {
+        orientationListener.disable()
+        try {
+            unregisterReceiver(settingsReceiver)
+        } catch (_: Exception) {}
+
         islandView?.let {
             try { windowManager.removeView(it) }
             catch (e: Exception) {
@@ -767,6 +1064,7 @@ class IslandForegroundService : LifecycleService(), ViewModelStoreOwner, SavedSt
         try {
             unregisterReceiver(batteryReceiver)
             audioUpdateReceiver?.let { unregisterReceiver(it) }
+            clipboardListener?.let { clipboardManager?.removePrimaryClipChangedListener(it) }
         } catch (e: Exception) {
             IslandLogger.e(TAG, "Unregister error: ${e.message ?: "unknown"}", e)
         }

@@ -36,21 +36,50 @@ fun IslandContentTransition(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMedium
                     )
-                ) { height -> height } + fadeIn(animationSpec = tween(200))
+                ) { height -> height } + fadeIn(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
             } else {
                 slideInVertically(
-                    animationSpec = tween(200)
-                ) { height -> -height } + fadeIn(animationSpec = tween(200))
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                ) { height -> -height } + fadeIn(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
             }
 
             val exitTransition = if (isExpanding) {
                 slideOutVertically(
-                    animationSpec = tween(150)
-                ) { height -> -height } + fadeOut(animationSpec = tween(150))
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                ) { height -> -height } + fadeOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
             } else {
                 slideOutVertically(
-                    animationSpec = tween(150)
-                ) { height -> height } + fadeOut(animationSpec = tween(150))
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                ) { height -> height } + fadeOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
             }
 
             enterTransition
